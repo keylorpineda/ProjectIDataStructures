@@ -1,6 +1,11 @@
 #include "MainWindow.h"
+#include <QScreen>
+#include <QPoint>
+#include <QRect>
+#include <QSize>
 #include <QTextBlockFormat>
 #include <QTextCursor>
+#include <limits>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     applyDarkTheme();
@@ -95,7 +100,7 @@ void MainWindow::buildUi() {
     split->setStretchFactor(0, 1);
     split->setStretchFactor(1, 1);
 
-    /* forzar tamaños iniciales simetricos */
+    /* forzar tamaos iniciales simetricos */
     QList<int> sizes;
     sizes << 1 << 1;
     split->setSizes(sizes);
@@ -124,10 +129,11 @@ void MainWindow::buildUi() {
     progress = new QProgressDialog("Traduciendo...", QString(), 0, 0, this);
     progress->setWindowModality(Qt::ApplicationModal);
     progress->setCancelButton(nullptr);
-    progress->setMinimumDuration(0);
-    progress->setAutoClose(true);
-    progress->setAutoReset(true);
+    progress->setMinimumDuration(std::numeric_limits<int>::max());
+    progress->setAutoClose(false);
+    progress->setAutoReset(false);
     progress->setWindowTitle("Espere");
+    progress->hide();
 
     /* tipografia: asegurar misma fuente y altura de linea en ambos editores */
     QFont mono("Consolas");
@@ -145,8 +151,16 @@ void MainWindow::buildUi() {
     setLineHeight(inputEdit, 120);
     setLineHeight(codeEdit, 120);
 
-    /* ventana un poco mas grande desde aqui (por si no lo ajustas en main.cpp) */
-    resize(1280, 800);
+    /* ventana mas compacta y centrada */
+    resize(1080, 700);
+    QTimer::singleShot(0, this, [this]() {
+        if (QScreen* screen = QGuiApplication::primaryScreen()) {
+            const QRect available = screen->availableGeometry();
+            const QSize winSize = size();
+            const QPoint centered = available.center() - QPoint(winSize.width() / 2, winSize.height() / 2);
+            move(centered);
+        }
+    });
 }
 
 void MainWindow::connectSignals() {
@@ -157,12 +171,21 @@ void MainWindow::connectSignals() {
 }
 
 void MainWindow::showBusy() {
+    progress->reset();
     progress->setLabelText("Traduciendo...");
+    progress->setRange(0, 0);
+    progress->adjustSize();
+    const QRect parentRect = geometry();
+    const QPoint topLeft = parentRect.center() - QPoint(progress->width() / 2, progress->height() / 2);
+    progress->move(topLeft);
     progress->show();
+    progress->raise();
+    progress->activateWindow();
 }
 
 void MainWindow::hideBusy() {
     progress->hide();
+    progress->reset();
 }
 
 void MainWindow::translateAllLines() {

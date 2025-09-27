@@ -171,7 +171,6 @@ void MainWindow::connectSignals() {
 }
 
 void MainWindow::showBusy() {
-    progress->reset();
     progress->setLabelText("Traduciendo...");
     progress->setRange(0, 0);
     progress->adjustSize();
@@ -185,7 +184,7 @@ void MainWindow::showBusy() {
 
 void MainWindow::hideBusy() {
     progress->hide();
-    progress->reset();
+    progress->setMinimumDuration(std::numeric_limits<int>::max());
 }
 
 void MainWindow::translateAllLines() {

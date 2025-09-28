@@ -50,6 +50,26 @@ Instruction InstructionProcessor::parseInstruction(string lineText) {
         return helper.trimSimple(original.substr(begin, endPos - begin));
     };
 
+    auto tryBinaryAssign = [&](const string& pattern, const string& canonical) -> Instruction {
+        string normalizedPattern = helper.removeAccents(helper.toLowerSimple(pattern));
+        int pos = (int)trimmedNormalized.find(normalizedPattern);
+        if (pos <= 0) {
+            return Instruction();
+        }
+        int patternLen = (int)normalizedPattern.length();
+        if (pos + patternLen > (int)trimmedOriginal.length()) {
+            patternLen = (int)trimmedOriginal.length() - pos;
+        }
+        string left = helper.trimSimple(trimmedOriginal.substr(0, pos));
+        string right = helper.trimSimple(trimmedOriginal.substr(pos + patternLen));
+        if (left == "" || right == "") {
+            return Instruction();
+        }
+        Instruction ins("Op", canonical, left + string("|") + right);
+        ins.setIndent(indentSpaces);
+        return ins;
+    };
+
     if (dict.hasComment(normalized)) {
         string rest = cutAfterInsensitive("comentario");
         Instruction ins("Meta", "comment", helper.trimSimple(rest));
@@ -82,6 +102,19 @@ Instruction InstructionProcessor::parseInstruction(string lineText) {
             rest = cutAfterInsensitive("llamar función");
         }
         Instruction ins("Func", "call_func", helper.trimSimple(rest));
+        ins.setIndent(indentSpaces);
+        return ins;
+    }
+
+    if ((int)trimmedNormalized.rfind("retornar", 0) == 0) {
+        string rest = helper.trimSimple(trimmedOriginal.substr((int)string("retornar").length()));
+        Instruction ins("Control", "return", helper.trimSimple(rest));
+        ins.setIndent(indentSpaces);
+        return ins;
+    }
+    if ((int)trimmedNormalized.rfind("retorne", 0) == 0) {
+        string rest = helper.trimSimple(trimmedOriginal.substr((int)string("retorne").length()));
+        Instruction ins("Control", "return", helper.trimSimple(rest));
         ins.setIndent(indentSpaces);
         return ins;
     }
@@ -162,6 +195,21 @@ Instruction InstructionProcessor::parseInstruction(string lineText) {
         ins.setIndent(indentSpaces);
         return ins;
     }
+
+    Instruction assignOp = tryBinaryAssign("multiplicar por", "mul_assign");
+    if (assignOp.getCategory() != "") { return assignOp; }
+    assignOp = tryBinaryAssign("dividir entre", "div_assign");
+    if (assignOp.getCategory() != "") { return assignOp; }
+    assignOp = tryBinaryAssign("dividir por", "div_assign");
+    if (assignOp.getCategory() != "") { return assignOp; }
+    assignOp = tryBinaryAssign("dividir", "div_assign");
+    if (assignOp.getCategory() != "") { return assignOp; }
+    assignOp = tryBinaryAssign("restar", "sub_assign");
+    if (assignOp.getCategory() != "") { return assignOp; }
+    assignOp = tryBinaryAssign("sumar", "sum_assign");
+    if (assignOp.getCategory() != "") { return assignOp; }
+    assignOp = tryBinaryAssign("multiplicar", "mul_assign");
+    if (assignOp.getCategory() != "") { return assignOp; }
 
     if (dict.hasCalculate(normalized)) {
         string rest = cutAfterInsensitive("calcular");

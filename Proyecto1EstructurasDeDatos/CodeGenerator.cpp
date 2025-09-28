@@ -1,5 +1,6 @@
 #include "CodeGenerator.h"
 #include <sstream>
+#include <vector>
 
 CodeGenerator::CodeGenerator() {
     arrayCounter = 1;
@@ -392,39 +393,114 @@ void CodeGenerator::genCreateVar(string params) {
         string right = helper.trimSimple(text.substr(withPos + 9));
         text = left;
         initValue = right;
+
+        if (initValue != "") {
+            string initNormalized = helper.removeAccents(helper.toLowerSimple(initValue));
+            if ((int)initNormalized.find("inicial") == 0) {
+                int offset = 7;
+                if ((int)initValue.length() > offset) {
+                    initValue = helper.trimSimple(initValue.substr(offset));
+                }
+                else {
+                    initValue = "";
+                }
+            }
+        }
     }
 
+    vector<string> tokens;
+    vector<string> normalized;
     istringstream iss(text);
-    string first;
-    if (iss >> first) {
-        if (first == "entero" || first == "numero" || first == "int") {
+    string token;
+    while (iss >> token) {
+        tokens.push_back(token);
+        string lowered = helper.toLowerSimple(token);
+        normalized.push_back(helper.removeAccents(lowered));
+    }
+
+    int nameIndex = -1;
+    if (!tokens.empty()) {
+        string firstNorm = normalized[0];
+        if (firstNorm == "entero" || firstNorm == "int") {
             typeName = "int";
-            iss >> varName;
+            nameIndex = 1;
         }
-        else if (first == "numero decimal" || first == "decimal" || first == "double" || first == "float") {
+        else if (firstNorm == "numero") {
+            if ((int)normalized.size() >= 2) {
+                string secondNorm = normalized[1];
+                if (secondNorm == "entero") {
+                    typeName = "int";
+                    nameIndex = 2;
+                }
+                else if (secondNorm == "decimal" || secondNorm == "real" || secondNorm == "doble") {
+                    typeName = "double";
+                    nameIndex = 2;
+                }
+                else if (secondNorm == "booleano" || secondNorm == "bool") {
+                    typeName = "bool";
+                    nameIndex = 2;
+                }
+                else if (secondNorm == "texto") {
+                    typeName = "string";
+                    nameIndex = 2;
+                }
+                else if (secondNorm == "caracter") {
+                    typeName = "char";
+                    nameIndex = 2;
+                }
+                else {
+                    typeName = "int";
+                    nameIndex = 1;
+                }
+            }
+            else {
+                typeName = "int";
+                nameIndex = 1;
+            }
+        }
+        else if (firstNorm == "decimal" || firstNorm == "double" || firstNorm == "float" || firstNorm == "real") {
             typeName = "double";
-            iss >> varName;
+            nameIndex = 1;
         }
-        else if (first == "texto" || first == "palabra" || first == "cadena" || first == "cadena de texto" || first == "string") {
-            typeName = "string";
-            iss >> varName;
-        }
-        else if (first == "caracter" || first == "char") {
-            typeName = "char";
-            iss >> varName;
-        }
-        else if (first == "booleano" || first == "bool") {
+        else if (firstNorm == "booleano" || firstNorm == "bool") {
             typeName = "bool";
-            iss >> varName;
+            nameIndex = 1;
+        }
+        else if (firstNorm == "texto" || firstNorm == "string" || firstNorm == "palabra") {
+            typeName = "string";
+            nameIndex = 1;
+        }
+        else if (firstNorm == "cadena") {
+            if ((int)normalized.size() >= 3 && normalized[1] == "de" && normalized[2] == "texto") {
+                typeName = "string";
+                nameIndex = 3;
+            }
+            else {
+                typeName = "string";
+                nameIndex = 1;
+            }
+        }
+        else if (firstNorm == "caracter" || firstNorm == "char") {
+            typeName = "char";
+            nameIndex = 1;
         }
         else {
-            varName = first;
+            nameIndex = 0;
         }
+    }
+
+    if (nameIndex >= 0 && nameIndex < (int)tokens.size()) {
+        varName = tokens[nameIndex];
+    }
+
+    if (varName == "" && !tokens.empty()) {
+        varName = tokens.back();
     }
 
     if (varName == "") {
         varName = "var1";
     }
+
     ensureDeclared(varName, typeName, initValue);
 }
 

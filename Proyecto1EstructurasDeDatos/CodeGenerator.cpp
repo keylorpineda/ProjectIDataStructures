@@ -210,11 +210,17 @@ void CodeGenerator::closeOneBlock() {
     if (target == 0) {
         target = activeLines;
     }
-    target->appendLine("}");
     string extra = closeLineStack[stackCount - 1];
     stackCount = stackCount - 1;
-    if (extra != "") {
-        target->appendLine(extra);
+    if ((int)extra.find("do_while|") == 0) {
+        string condition = extra.substr(9);
+        target->appendLine("} while (" + condition + ");");
+    }
+    else {
+        target->appendLine("}");
+        if (extra != "") {
+            target->appendLine(extra);
+        }
     }
     if (stackCount > 0) {
         lastIndent = indentStack[stackCount - 1];
@@ -447,10 +453,21 @@ void CodeGenerator::genMul(string params) {
 
 void CodeGenerator::genDiv(string params) {
     vector<string> operands = extractMathOperands(params);
-    string expression = buildMathExpression(operands, "/");
-    if (expression == "") {
+    if (operands.empty()) {
         appendLine("// dividir: sin operandos");
         return;
+    }
+    string expression;
+    string first = helper.trimSimple(operands[0]);
+    string firstType = inferTypeFromToken(first);
+    if (firstType == "int") {
+        expression = "static_cast<double>(" + first + ")";
+    }
+    else {
+        expression = first;
+    }
+    for (size_t i = 1; i < operands.size(); ++i) {
+        expression = expression + " / " + operands[i];
     }
     ensureDeclared("resultadoDivision", "double", "");
     appendLine("resultadoDivision = " + expression + ";");
@@ -630,7 +647,7 @@ void CodeGenerator::genDoUntil(string params) {
     string condition = normalizeConditionTokens(params);
     appendLine("do");
     headerJustEmitted = true;
-    nextCloseLine = "while (!(" + condition + "));";
+    nextCloseLine = "do_while|!(" + condition + ")";
 }
 
 void CodeGenerator::genForTo(string params) {
@@ -856,7 +873,7 @@ void CodeGenerator::genCreateArray(string params) {
     }
     ostringstream os;
     os << sizeValue;
-    appendLine(typeName + string(" ") + arrayName + string("[") + os.str() + string("];"));
+    appendLine(typeName + string(" ") + arrayName + string("[") + os.str() + string("] = {};"));
     ArrayInfo info;
     info.name = arrayName;
     info.elementType = typeName;

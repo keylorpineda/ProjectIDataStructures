@@ -36,11 +36,48 @@ char TextHelper::toLowerAscii(char c) {
     return c;
 }
 
+char TextHelper::removeAccentChar(char c) {
+    switch (c) {
+    case '\xc1': // Á
+    case '\xe1': // á
+        return 'a';
+    case '\xc9': // É
+    case '\xe9': // é
+        return 'e';
+    case '\xcd': // Í
+    case '\xed': // í
+        return 'i';
+    case '\xd3': // Ó
+    case '\xf3': // ó
+        return 'o';
+    case '\xda': // Ú
+    case '\xfa': // ú
+    case '\xdc': // Ü
+    case '\xfc': // ü
+        return 'u';
+    case '\xd1': // Ñ
+    case '\xf1': // ñ
+        return 'n';
+    default:
+        return c;
+    }
+}
+
 string TextHelper::toLowerSimple(string text) {
     int i = 0;
     int n = (int)text.length();
     while (i < n) {
         text[i] = toLowerAscii(text[i]);
+        i = i + 1;
+    }
+    return text;
+}
+
+string TextHelper::removeAccents(string text) {
+    int i = 0;
+    int n = (int)text.length();
+    while (i < n) {
+        text[i] = removeAccentChar(text[i]);
         i = i + 1;
     }
     return text;

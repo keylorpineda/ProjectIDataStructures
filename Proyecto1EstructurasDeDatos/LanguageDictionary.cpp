@@ -45,25 +45,35 @@ LanguageDictionary::LanguageDictionary() {
 }
 
 string LanguageDictionary::findOpKey(string text) {
-    map<string, string>::iterator it = mapOp.begin();
-    while (it != mapOp.end()) {
-        if ((int)text.find(it->first) >= 0) {
-            return it->first;
+    string bestKey = "";
+    size_t bestLength = 0;
+    for (auto& entry : mapOp) {
+        size_t pos = text.find(entry.first);
+        if (pos != string::npos) {
+            size_t currentLength = entry.first.length();
+            if (currentLength > bestLength) {
+                bestKey = entry.first;
+                bestLength = currentLength;
+            }
         }
-        it++;
     }
-    return "";
+    return bestKey;
 }
 
 string LanguageDictionary::findIOKey(string text) {
-    map<string, string>::iterator it = mapIO.begin();
-    while (it != mapIO.end()) {
-        if ((int)text.find(it->first) >= 0) {
-            return it->first;
+    string bestKey = "";
+    size_t bestLength = 0;
+    for (auto& entry : mapIO) {
+        size_t pos = text.find(entry.first);
+        if (pos != string::npos) {
+            size_t currentLength = entry.first.length();
+            if (currentLength > bestLength) {
+                bestKey = entry.first;
+                bestLength = currentLength;
+            }
         }
-        it++;
     }
-    return "";
+    return bestKey;
 }
 
 string LanguageDictionary::opCanonical(string key) {
@@ -94,7 +104,18 @@ bool LanguageDictionary::hasForTo(string text) { return (int)text.find("para") >
 bool LanguageDictionary::hasDoUntil(string text) { return (int)text.find("repetir hasta") >= 0; }
 
 bool LanguageDictionary::hasBeginProgram(string text) { return (int)text.find("comenzar programa") >= 0; }
-bool LanguageDictionary::hasEndProgram(string text) { return (int)text.find("terminar programa") >= 0 || (int)text.find("fin") >= 0; }
+bool LanguageDictionary::hasEndProgram(string text) {
+    if ((int)text.find("terminar programa") >= 0) {
+        return true;
+    }
+    size_t first = text.find_first_not_of(" \t\r\n");
+    if (first == string::npos) {
+        return false;
+    }
+    size_t last = text.find_last_not_of(" \t\r\n");
+    string trimmed = text.substr(first, last - first + 1);
+    return trimmed == "fin";
+}
 bool LanguageDictionary::hasComment(string text) { return (int)text.find("comentario") >= 0; }
 
 bool LanguageDictionary::hasDefineFunction(string text) { return (int)text.find("definir funcion") >= 0; }

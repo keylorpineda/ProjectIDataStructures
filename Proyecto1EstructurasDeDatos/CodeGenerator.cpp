@@ -171,6 +171,12 @@ void CodeGenerator::beforeEmit(int newIndentRaw) {
         }
     }
     int newIndent = effectiveIndent(newIndentRaw);
+    if (headerJustEmitted) {
+        if (newIndent > lastIndent) {
+            openBlock(newIndent);
+        }
+        headerJustEmitted = false;
+    }
     closeTo(newIndent);
 }
 
@@ -179,9 +185,7 @@ void CodeGenerator::afterEmit(int newIndentRaw) {
     if (headerJustEmitted && newIndent > lastIndent) {
         openBlock(newIndent);
         headerJustEmitted = false;
-        return;
     }
-    headerJustEmitted = false;
 }
 
 void CodeGenerator::openBlock(int indentLevel) {
@@ -565,7 +569,7 @@ void CodeGenerator::genMessage(string params) {
 void CodeGenerator::genRead(string params) {
     string trimmed = helper.trimSimple(params);
     string lowered = toLowerNoAccents(trimmed);
-    if (lowered.find("cada") >= 0 || lowered.find("todos") >= 0 || lowered.find("lista") >= 0 || lowered.find("elemento") >= 0) {
+    if (lowered.find("cada") != string::npos || lowered.find("todos") != string::npos || lowered.find("lista") != string::npos || lowered.find("elemento") != string::npos) {
         ArrayInfo info = resolveArrayForText(trimmed);
         string indexName = selectIndexName("i");
         string sizeExpr = arraySizeExpression(info);
@@ -574,7 +578,9 @@ void CodeGenerator::genRead(string params) {
         if (structTable.find(info.elementType) != structTable.end()) {
             StructInfo sinfo = structTable[info.elementType];
             for (auto& field : sinfo.fields) {
-                appendLine("    cout << \"Ingrese " + field.first + " del " + info.elementType + " \" << " + indexName + " << ": ";");
+                string promptLine = string("    cout << \\\"Ingrese ") + field.first + " del " + info.elementType +
+                    " \\\" << " + indexName + " << \": \\\";";
+                appendLine(promptLine);
                 appendLine("    cin >> " + info.name + "[" + indexName + "]." + field.first + ";");
             }
         }
@@ -624,7 +630,7 @@ void CodeGenerator::genDoUntil(string params) {
     string condition = normalizeConditionTokens(params);
     appendLine("do");
     headerJustEmitted = true;
-    nextCloseLine = "while (" + condition + ");";
+    nextCloseLine = "while (!(" + condition + "));";
 }
 
 void CodeGenerator::genForTo(string params) {
@@ -937,16 +943,16 @@ void CodeGenerator::genCreateStruct(string params) {
         }
         string normalizedType = toLowerNoAccents(typeText);
         string cppType = "int";
-        if (normalizedType.find("decimal") >= 0 || normalizedType.find("real") >= 0 || normalizedType.find("double") >= 0) {
+        if (normalizedType.find("decimal") != string::npos || normalizedType.find("real") != string::npos || normalizedType.find("double") != string::npos) {
             cppType = "double";
         }
-        else if (normalizedType.find("texto") >= 0 || normalizedType.find("cadena") >= 0 || normalizedType.find("string") >= 0) {
+        else if (normalizedType.find("texto") != string::npos || normalizedType.find("cadena") != string::npos || normalizedType.find("string") != string::npos) {
             cppType = "string";
         }
-        else if (normalizedType.find("bool") >= 0 || normalizedType.find("booleano") >= 0) {
+        else if (normalizedType.find("bool") != string::npos || normalizedType.find("booleano") != string::npos) {
             cppType = "bool";
         }
-        else if (normalizedType.find("char") >= 0 || normalizedType.find("caracter") >= 0) {
+        else if (normalizedType.find("char") != string::npos || normalizedType.find("caracter") != string::npos) {
             cppType = "char";
         }
         info.fields.push_back(make_pair(helper.trimSimple(fieldName), cppType));

@@ -1,6 +1,5 @@
 #include "CodeGenerator.h"
 #include <sstream>
-#include <vector>
 
 CodeGenerator::CodeGenerator() {
     arrayCounter = 1;
@@ -8,13 +7,175 @@ CodeGenerator::CodeGenerator() {
     stackCount = 0;
     headerJustEmitted = false;
     nextCloseLine = "";
+    activeLines = &bodyLines;
+    insideFunction = false;
+    functionIndent = 0;
+    functionBodyIndent = 0;
+    hasLastArray = false;
+    lastLoopIndex = "";
+    lastLoopArray = "";
 }
 
-void CodeGenerator::beforeEmit(int newIndent) {
+void CodeGenerator::appendLine(const string& text) {
+    if (activeLines == 0) {
+        activeLines = &bodyLines;
+    }
+    activeLines->appendLine(text);
+}
+
+void CodeGenerator::appendToPrelude(const string& text) {
+    preludeLines.appendLine(text);
+}
+
+string CodeGenerator::toLowerNoAccents(string text) {
+    return helper.removeAccents(helper.toLowerSimple(text));
+}
+
+string CodeGenerator::normalizeBooleanWord(string text) {
+    string lowered = toLowerNoAccents(helper.trimSimple(text));
+    if (lowered == "verdadero" || lowered == "cierto" || lowered == "true") {
+        return "true";
+    }
+    if (lowered == "falso" || lowered == "false") {
+        return "false";
+    }
+    return text;
+}
+
+vector<string> CodeGenerator::splitPrintSegments(string text) {
+    vector<string> parts;
+    string current;
+    bool inString = false;
+    int n = (int)text.length();
+    int i = 0;
+    while (i < n) {
+        char c = text[i];
+        if (c == '\"') {
+            inString = !inString;
+            current.push_back(c);
+            i = i + 1;
+            continue;
+        }
+        if (!inString) {
+            if (i + 2 < n) {
+                string maybe = text.substr(i, 3);
+                string lowered = helper.toLowerSimple(maybe);
+                if (lowered == " y ") {
+                    parts.push_back(helper.trimSimple(current));
+                    current.clear();
+                    i = i + 3;
+                    continue;
+                }
+            }
+            if (c == ',') {
+                parts.push_back(helper.trimSimple(current));
+                current.clear();
+                i = i + 1;
+                continue;
+            }
+        }
+        current.push_back(c);
+        i = i + 1;
+    }
+    string lastPart = helper.trimSimple(current);
+    if (lastPart != "") {
+        parts.push_back(lastPart);
+    }
+    return parts;
+}
+
+string CodeGenerator::detectArrayReference(string text) {
+    string lowered = toLowerNoAccents(text);
+    for (auto& it : arrayTable) {
+        string loweredName = toLowerNoAccents(it.first);
+        if ((int)lowered.find(loweredName) >= 0) {
+            return it.first;
+        }
+    }
+    if (hasLastArray) {
+        return lastArrayInfo.name;
+    }
+    return "";
+}
+
+CodeGenerator::ArrayInfo CodeGenerator::resolveArrayForText(string text) {
+    string arrayName = detectArrayReference(text);
+    if (arrayName != "") {
+        auto it = arrayTable.find(arrayName);
+        if (it != arrayTable.end()) {
+            return it->second;
+        }
+    }
+    if (hasLastArray) {
+        return lastArrayInfo;
+    }
+    ArrayInfo info;
+    info.name = "lista1";
+    info.elementType = "int";
+    info.size = 0;
+    return info;
+}
+
+string CodeGenerator::arraySizeExpression(const ArrayInfo& info) {
+    if (info.size > 0) {
+        ostringstream os;
+        os << info.size;
+        return os.str();
+    }
+    return "N";
+}
+
+string CodeGenerator::selectIndexName(string preferred) {
+    if (preferred == "") {
+        preferred = "i";
+    }
+    if (preferred == lastLoopIndex) {
+        return preferred;
+    }
+    lastLoopIndex = preferred;
+    return preferred;
+}
+
+void CodeGenerator::registerArray(const ArrayInfo& info) {
+    arrayTable[info.name] = info;
+    lastArrayInfo = info;
+    hasLastArray = true;
+}
+
+void CodeGenerator::registerStruct(const StructInfo& info) {
+    structTable[info.name] = info;
+}
+
+int CodeGenerator::effectiveIndent(int rawIndent) {
+    if (insideFunction) {
+        int adjusted = rawIndent - functionBodyIndent;
+        if (adjusted < 0) {
+            adjusted = 0;
+        }
+        return adjusted;
+    }
+    return rawIndent;
+}
+
+void CodeGenerator::beforeEmit(int newIndentRaw) {
+    if (insideFunction) {
+        if (newIndentRaw <= functionIndent) {
+            closeAllBlocks();
+            appendLine("}");
+            insideFunction = false;
+            activeLines = &bodyLines;
+            lastIndent = 0;
+            stackCount = 0;
+            headerJustEmitted = false;
+            nextCloseLine = "";
+        }
+    }
+    int newIndent = effectiveIndent(newIndentRaw);
     closeTo(newIndent);
 }
 
-void CodeGenerator::afterEmit(int newIndent) {
+void CodeGenerator::afterEmit(int newIndentRaw) {
+    int newIndent = effectiveIndent(newIndentRaw);
     if (headerJustEmitted && newIndent > lastIndent) {
         openBlock(newIndent);
         headerJustEmitted = false;
@@ -24,10 +185,11 @@ void CodeGenerator::afterEmit(int newIndent) {
 }
 
 void CodeGenerator::openBlock(int indentLevel) {
-    bodyLines.appendLine("{");
+    appendLine("{");
     if (stackCount < 64) {
         indentStack[stackCount] = indentLevel;
         closeLineStack[stackCount] = nextCloseLine;
+        lineStack[stackCount] = activeLines;
         stackCount = stackCount + 1;
     }
     lastIndent = indentLevel;
@@ -35,19 +197,23 @@ void CodeGenerator::openBlock(int indentLevel) {
 }
 
 void CodeGenerator::closeOneBlock() {
-    bodyLines.appendLine("}");
+    if (stackCount == 0) {
+        appendLine("}");
+        lastIndent = 0;
+        return;
+    }
+    LineList* target = lineStack[stackCount - 1];
+    if (target == 0) {
+        target = activeLines;
+    }
+    target->appendLine("}");
+    string extra = closeLineStack[stackCount - 1];
+    stackCount = stackCount - 1;
+    if (extra != "") {
+        target->appendLine(extra);
+    }
     if (stackCount > 0) {
-        string extra = closeLineStack[stackCount - 1];
-        stackCount = stackCount - 1;
-        if (extra != "") {
-            bodyLines.appendLine(extra);
-        }
-        if (stackCount > 0) {
-            lastIndent = indentStack[stackCount - 1];
-        }
-        else {
-            lastIndent = 0;
-        }
+        lastIndent = indentStack[stackCount - 1];
     }
     else {
         lastIndent = 0;
@@ -55,7 +221,7 @@ void CodeGenerator::closeOneBlock() {
 }
 
 void CodeGenerator::closeTo(int targetIndent) {
-    while (lastIndent > targetIndent) {
+    while (lastIndent > targetIndent && stackCount > 0) {
         closeOneBlock();
     }
 }
@@ -65,7 +231,6 @@ void CodeGenerator::closeAllBlocks() {
         closeOneBlock();
     }
 }
-
 
 string CodeGenerator::normalizeMathTokens(string text) {
     string t = helper.replaceAllSimple(text, "sumar", "+");
@@ -81,12 +246,17 @@ string CodeGenerator::normalizeMathTokens(string text) {
 }
 
 string CodeGenerator::normalizeConditionTokens(string text) {
-    string t = helper.replaceAllSimple(text, "igual a", "==");
+    string t = helper.replaceAllSimple(text, "mayor o igual que", ">=");
+    t = helper.replaceAllSimple(t, "menor o igual que", "<=");
+    t = helper.replaceAllSimple(t, "igual a", "==");
     t = helper.replaceAllSimple(t, "diferente de", "!=");
     t = helper.replaceAllSimple(t, "mayor que", ">");
     t = helper.replaceAllSimple(t, "menor que", "<");
+    t = helper.replaceAllSimple(t, " es ", " == ");
     t = helper.replaceAllSimple(t, " y ", " && ");
     t = helper.replaceAllSimple(t, " o ", " || ");
+    t = helper.replaceAllSimple(t, "verdadero", "true");
+    t = helper.replaceAllSimple(t, "falso", "false");
     return helper.trimSimple(t);
 }
 
@@ -117,7 +287,6 @@ bool CodeGenerator::parseForParts(string text, string& varName, string& startVal
     }
     varName = helper.trimSimple(clean.substr(0, eq));
     string rightPart = helper.trimSimple(clean.substr(eq + 1));
-
     istringstream iss(rightPart);
     string tokenStart;
     string tokenEnd;
@@ -127,24 +296,23 @@ bool CodeGenerator::parseForParts(string text, string& varName, string& startVal
     if (!(iss >> tokenEnd)) {
         return false;
     }
-
     startVal = tokenStart;
     endVal = tokenEnd;
     return true;
 }
 
 string CodeGenerator::inferTypeFromToken(string token) {
-    int lengthValue = (int)token.length();
-    if (token == "true" || token == "false") {
+    string normalized = toLowerNoAccents(token);
+    if (normalized == "true" || normalized == "false" || normalized == "verdadero" || normalized == "falso") {
         return "bool";
     }
-    if (lengthValue >= 2 && token[0] == '"' && token[lengthValue - 1] == '"') {
+    int lengthValue = (int)token.length();
+    if (lengthValue >= 2 && token[0] == '\"' && token[lengthValue - 1] == '\"') {
         return "string";
     }
     if (lengthValue == 3 && token[0] == '\'' && token[2] == '\'') {
         return "char";
     }
-
     bool numeric = true;
     bool hasDot = false;
     int i = 0;
@@ -181,10 +349,10 @@ void CodeGenerator::ensureDeclared(string varName, string typeName, string initV
         return;
     }
     if (initValue == "") {
-        bodyLines.appendLine(typeName + string(" ") + varName + string(";"));
+        appendLine(typeName + string(" ") + varName + string(";"));
     }
     else {
-        bodyLines.appendLine(typeName + string(" ") + varName + string(" = ") + initValue + string(";"));
+        appendLine(typeName + string(" ") + varName + string(" = ") + initValue + string(";"));
     }
     symbolTable.addOrUpdateVariable(Variable(varName, typeName, initValue));
 }
@@ -195,7 +363,6 @@ void CodeGenerator::genSum(string params) {
     string token;
     string expression = "";
     int countTokens = 0;
-
     while (iss >> token) {
         if (expression != "") {
             expression = expression + " + ";
@@ -206,10 +373,9 @@ void CodeGenerator::genSum(string params) {
             break;
         }
     }
-
     ensureDeclared("total", "int", "");
-    bodyLines.appendLine("total = " + expression + ";");
-    bodyLines.appendLine("cout << \"El resultado es: \" << total << endl;");
+    appendLine("total = " + expression + ";");
+    appendLine("cout << \"El resultado es: \" << total << endl;");
 }
 
 void CodeGenerator::genSub(string params) {
@@ -218,7 +384,6 @@ void CodeGenerator::genSub(string params) {
     string token;
     string expression = "";
     int countTokens = 0;
-
     while (iss >> token) {
         if (expression != "") {
             expression = expression + " - ";
@@ -229,9 +394,8 @@ void CodeGenerator::genSub(string params) {
             break;
         }
     }
-
-    bodyLines.appendLine("int resultado = " + expression + ";");
-    bodyLines.appendLine("cout << \"El resultado es: \" << resultado << endl;");
+    appendLine("int resultado = " + expression + ";");
+    appendLine("cout << \"El resultado es: \" << resultado << endl;");
 }
 
 void CodeGenerator::genMul(string params) {
@@ -240,7 +404,6 @@ void CodeGenerator::genMul(string params) {
     string token;
     string expression = "";
     int countTokens = 0;
-
     while (iss >> token) {
         if (expression != "") {
             expression = expression + " * ";
@@ -251,9 +414,8 @@ void CodeGenerator::genMul(string params) {
             break;
         }
     }
-
-    bodyLines.appendLine("int resultado = " + expression + ";");
-    bodyLines.appendLine("cout << \"El resultado es: \" << resultado << endl;");
+    appendLine("int resultado = " + expression + ";");
+    appendLine("cout << \"El resultado es: \" << resultado << endl;");
 }
 
 void CodeGenerator::genDiv(string params) {
@@ -262,7 +424,6 @@ void CodeGenerator::genDiv(string params) {
     string token;
     string expression = "";
     int countTokens = 0;
-
     while (iss >> token) {
         if (expression != "") {
             expression = expression + " / ";
@@ -273,72 +434,180 @@ void CodeGenerator::genDiv(string params) {
             break;
         }
     }
-
-    bodyLines.appendLine("double resultado = " + expression + ";");
-    bodyLines.appendLine("cout << \"El resultado es: \" << resultado << endl;");
+    appendLine("double resultado = " + expression + ";");
+    appendLine("cout << \"El resultado es: \" << resultado << endl;");
 }
 
 void CodeGenerator::genCalc(string params) {
-    string normalized = normalizeMathTokens(params);
+    string lowered = toLowerNoAccents(params);
+    int assignPos = (int)lowered.rfind("asignar a");
+    string expressionPart = params;
+    string targetVar = "resultado";
+    if (assignPos >= 0) {
+        expressionPart = helper.trimSimple(params.substr(0, assignPos));
+        targetVar = helper.trimSimple(params.substr(assignPos + 9));
+    }
+    int comoPos = (int)toLowerNoAccents(expressionPart).rfind("como");
+    if (comoPos >= 0) {
+        expressionPart = helper.trimSimple(expressionPart.substr(comoPos + 4));
+    }
+    string normalized = normalizeBooleanWord(normalizeMathTokens(expressionPart));
     if (normalized == "") {
-        bodyLines.appendLine("// calcular: sin expresion");
+        appendLine("// calcular: sin expresion");
         return;
     }
-    bodyLines.appendLine("int resultado = " + normalized + ";");
-    bodyLines.appendLine("cout << \"El resultado es: \" << resultado << endl;");
+    string inferredType = inferTypeFromToken(normalized);
+    if (!symbolTable.variableExists(targetVar)) {
+        ensureDeclared(targetVar, inferredType == "int" ? "double" : inferredType, "");
+    }
+    appendLine(targetVar + " = " + normalized + ";");
+}
+
+static pair<string, string> splitDualParams(TextHelper& helper, string params) {
+    int pipePos = helper.indexOfText(params, "|");
+    if (pipePos < 0) {
+        return make_pair(helper.trimSimple(params), string(""));
+    }
+    string left = helper.trimSimple(params.substr(0, pipePos));
+    string right = helper.trimSimple(params.substr(pipePos + 1));
+    return make_pair(left, right);
+}
+
+void CodeGenerator::genSumAssign(string params) {
+    auto parts = splitDualParams(helper, params);
+    string varName = parts.first;
+    string value = normalizeMathTokens(parts.second);
+    if (!symbolTable.variableExists(varName)) {
+        ensureDeclared(varName, inferTypeFromToken(value), "");
+    }
+    appendLine(varName + " = " + varName + " + " + value + ";");
+}
+
+void CodeGenerator::genSubAssign(string params) {
+    auto parts = splitDualParams(helper, params);
+    string varName = parts.first;
+    string value = normalizeMathTokens(parts.second);
+    if (!symbolTable.variableExists(varName)) {
+        ensureDeclared(varName, inferTypeFromToken(value), "");
+    }
+    appendLine(varName + " = " + varName + " - " + value + ";");
+}
+
+void CodeGenerator::genMulAssign(string params) {
+    auto parts = splitDualParams(helper, params);
+    string varName = parts.first;
+    string value = normalizeMathTokens(parts.second);
+    if (!symbolTable.variableExists(varName)) {
+        ensureDeclared(varName, inferTypeFromToken(value), "");
+    }
+    appendLine(varName + " = " + varName + " * " + value + ";");
+}
+
+void CodeGenerator::genDivAssign(string params) {
+    auto parts = splitDualParams(helper, params);
+    string varName = parts.first;
+    string value = normalizeMathTokens(parts.second);
+    if (!symbolTable.variableExists(varName)) {
+        ensureDeclared(varName, "double", "");
+    }
+    appendLine(varName + " = " + varName + " / " + value + ";");
 }
 
 void CodeGenerator::genPrint(string params) {
-    bodyLines.appendLine("cout << " + params + " << endl;");
+    vector<string> segments = splitPrintSegments(params);
+    if (segments.empty()) {
+        appendLine("cout << endl;");
+        return;
+    }
+    string expression = "";
+    for (auto& seg : segments) {
+        if (seg == "") {
+            continue;
+        }
+        string normalized = normalizeBooleanWord(seg);
+        if (expression != "") {
+            expression = expression + " << ";
+        }
+        expression = expression + normalized;
+    }
+    appendLine("cout << " + expression + " << endl;");
 }
 
 void CodeGenerator::genMessage(string params) {
     string textValue = helper.trimSimple(params);
     if (textValue == "") {
-        bodyLines.appendLine("cout << \"\" << endl;");
+        appendLine("cout << \"\" << endl;");
         return;
     }
     int n = (int)textValue.length();
-    if (textValue[0] == '"' && textValue[n - 1] == '"') {
-        bodyLines.appendLine("cout << " + textValue + " << endl;");
+    if (n >= 2 && textValue[0] == '\"' && textValue[n - 1] == '\"') {
+        appendLine("cout << " + textValue + " << endl;");
         return;
     }
-    bodyLines.appendLine("cout << \"" + textValue + "\" << endl;");
+    appendLine("cout << \"" + textValue + "\" << endl;");
 }
 
 void CodeGenerator::genRead(string params) {
-    string varName = helper.trimSimple(params);
-    if (varName == "") {
-        bodyLines.appendLine("// leer: falta variable");
+    string trimmed = helper.trimSimple(params);
+    string lowered = toLowerNoAccents(trimmed);
+    if (lowered.find("cada") >= 0 || lowered.find("todos") >= 0 || lowered.find("lista") >= 0 || lowered.find("elemento") >= 0) {
+        ArrayInfo info = resolveArrayForText(trimmed);
+        string indexName = selectIndexName("i");
+        string sizeExpr = arraySizeExpression(info);
+        appendLine("for (int " + indexName + " = 0; " + indexName + " < " + sizeExpr + "; " + indexName + "++)");
+        appendLine("{");
+        if (structTable.find(info.elementType) != structTable.end()) {
+            StructInfo sinfo = structTable[info.elementType];
+            for (auto& field : sinfo.fields) {
+                appendLine("    cout << \"Ingrese " + field.first + " del " + info.elementType + " \" << " + indexName + " << ": ";");
+                appendLine("    cin >> " + info.name + "[" + indexName + "]." + field.first + ";");
+            }
+        }
+        else {
+            appendLine("    cin >> " + info.name + "[" + indexName + "];");
+        }
+        appendLine("}");
+        lastLoopArray = info.name;
         return;
     }
-    ensureDeclared(varName, "int", "0");
-    bodyLines.appendLine("cin >> " + varName + ";");
+    string varName = trimmed;
+    if (varName == "") {
+        appendLine("// leer: falta variable");
+        return;
+    }
+    string normalizedVar = normalizeBooleanWord(varName);
+    if (symbolTable.variableExists(normalizedVar)) {
+        Variable var = symbolTable.getVariable(normalizedVar);
+        appendLine("cin >> " + var.getName() + ";");
+        return;
+    }
+    ensureDeclared(normalizedVar, "int", "0");
+    appendLine("cin >> " + normalizedVar + ";");
 }
 
 void CodeGenerator::genIf(string params) {
     string condition = normalizeConditionTokens(params);
-    bodyLines.appendLine("if (" + condition + ")");
+    appendLine("if (" + condition + ")");
     headerJustEmitted = true;
     nextCloseLine = "";
 }
 
 void CodeGenerator::genElse() {
-    bodyLines.appendLine("else");
+    appendLine("else");
     headerJustEmitted = true;
     nextCloseLine = "";
 }
 
 void CodeGenerator::genWhile(string params) {
     string condition = normalizeConditionTokens(params);
-    bodyLines.appendLine("while (" + condition + ")");
+    appendLine("while (" + condition + ")");
     headerJustEmitted = true;
     nextCloseLine = "";
 }
 
 void CodeGenerator::genDoUntil(string params) {
     string condition = normalizeConditionTokens(params);
-    bodyLines.appendLine("do");
+    appendLine("do");
     headerJustEmitted = true;
     nextCloseLine = "while (" + condition + ");";
 }
@@ -356,29 +625,21 @@ void CodeGenerator::genForTo(string params) {
     string endVal = "";
     bool ok = parseForParts(text, varName, startVal, endVal);
     if (!ok) {
-        bodyLines.appendLine("// para/hasta: formato no reconocido");
+        appendLine("// para/hasta: formato no reconocido");
         return;
     }
-    bodyLines.appendLine("for (int " + varName + " = " + startVal + "; " + varName + " <= " + endVal + "; " + varName + "++)");
+    appendLine("for (int " + varName + " = " + startVal + "; " + varName + " <= " + endVal + "; " + varName + "++)");
     headerJustEmitted = true;
     nextCloseLine = "";
 }
 
-void CodeGenerator::genDefineFunction(string params) {
-    string signature = helper.trimSimple(params);
-    if (signature == "") {
-        preludeLines.appendLine("void funcion()");
-        preludeLines.appendLine("{");
-        preludeLines.appendLine("}");
-        return;
-    }
-    int open = helper.indexOfText(signature, "(");
-    if (open < 0) {
-        signature = signature + "()";
-    }
-    preludeLines.appendLine(signature);
-    preludeLines.appendLine("{");
-    preludeLines.appendLine("}");
+static string normalizeInitialValue(TextHelper& helper, const string& value) {
+    string trimmed = helper.trimSimple(value);
+    string lowered = helper.removeAccents(helper.toLowerSimple(trimmed));
+    if (lowered == "falso") { return "false"; }
+    if (lowered == "verdadero") { return "true"; }
+    if (lowered == "nulo" || lowered == "null") { return "0"; }
+    return trimmed;
 }
 
 void CodeGenerator::genCreateVar(string params) {
@@ -386,14 +647,12 @@ void CodeGenerator::genCreateVar(string params) {
     string typeName = "int";
     string varName = "";
     string initValue = "";
-
     int withPos = helper.indexOfText(text, "con valor");
     if (withPos >= 0) {
         string left = helper.trimSimple(text.substr(0, withPos));
         string right = helper.trimSimple(text.substr(withPos + 9));
         text = left;
-        initValue = right;
-
+        initValue = normalizeInitialValue(helper, right);
         if (initValue != "") {
             string initNormalized = helper.removeAccents(helper.toLowerSimple(initValue));
             if ((int)initNormalized.find("inicial") == 0) {
@@ -407,7 +666,6 @@ void CodeGenerator::genCreateVar(string params) {
             }
         }
     }
-
     vector<string> tokens;
     vector<string> normalized;
     istringstream iss(text);
@@ -417,7 +675,6 @@ void CodeGenerator::genCreateVar(string params) {
         string lowered = helper.toLowerSimple(token);
         normalized.push_back(helper.removeAccents(lowered));
     }
-
     int nameIndex = -1;
     if (!tokens.empty()) {
         string firstNorm = normalized[0];
@@ -488,19 +745,18 @@ void CodeGenerator::genCreateVar(string params) {
             nameIndex = 0;
         }
     }
-
     if (nameIndex >= 0 && nameIndex < (int)tokens.size()) {
         varName = tokens[nameIndex];
     }
-
     if (varName == "" && !tokens.empty()) {
         varName = tokens.back();
     }
-
     if (varName == "") {
         varName = "var1";
     }
-
+    if (initValue != "") {
+        initValue = normalizeBooleanWord(initValue);
+    }
     ensureDeclared(varName, typeName, initValue);
 }
 
@@ -508,7 +764,6 @@ void CodeGenerator::genAssign(string params) {
     string text = helper.trimSimple(params);
     string varName = "";
     string value = "";
-
     int posA = helper.indexOfText(text, " a ");
     if (posA >= 0) {
         value = helper.trimSimple(text.substr(0, posA));
@@ -517,17 +772,17 @@ void CodeGenerator::genAssign(string params) {
     else {
         bool ok = splitAssignRight(text, varName, value);
         if (!ok) {
-            bodyLines.appendLine("// asignar valor: formato no reconocido");
+            appendLine("// asignar valor: formato no reconocido");
             return;
         }
     }
-
+    value = normalizeBooleanWord(normalizeMathTokens(value));
     if (!symbolTable.variableExists(varName)) {
         string inferred = inferTypeFromToken(value);
         ensureDeclared(varName, inferred, value);
         return;
     }
-    bodyLines.appendLine(varName + " = " + value + ";");
+    appendLine(varName + " = " + value + ";");
     symbolTable.assignValue(varName, value);
 }
 
@@ -536,7 +791,13 @@ void CodeGenerator::genCreateArray(string params) {
     string arrayName = "";
     string typeName = "int";
     int sizeValue = 0;
-
+    for (auto& entry : structTable) {
+        string loweredName = toLowerNoAccents(entry.first);
+        if ((int)toLowerNoAccents(text).find(loweredName) >= 0) {
+            typeName = entry.first;
+            break;
+        }
+    }
     if ((int)text.find("string") >= 0 || (int)text.find("texto") >= 0 || (int)text.find("cadena") >= 0) {
         typeName = "string";
     }
@@ -549,14 +810,12 @@ void CodeGenerator::genCreateArray(string params) {
     else if ((int)text.find("bool") >= 0 || (int)text.find("booleano") >= 0) {
         typeName = "bool";
     }
-
     int posNamed = helper.indexOfText(text, "llamada");
     if (posNamed >= 0) {
         string after = helper.trimSimple(text.substr(posNamed + 7));
         istringstream ns(after);
         ns >> arrayName;
     }
-
     int posCon = helper.indexOfText(text, "con");
     int posElem = helper.indexOfText(text, "elemento");
     if (posCon >= 0 && posElem > posCon) {
@@ -568,118 +827,238 @@ void CodeGenerator::genCreateArray(string params) {
             sizeValue = n;
         }
     }
-
     if (arrayName == "") {
         arrayName = nextArrayName();
     }
     if (sizeValue <= 0) {
         sizeValue = 1;
     }
-
     ostringstream os;
     os << sizeValue;
-    bodyLines.appendLine(typeName + string(" ") + arrayName + string("[") + os.str() + string("];"));
+    appendLine(typeName + string(" ") + arrayName + string("[") + os.str() + string("];"));
+    ArrayInfo info;
+    info.name = arrayName;
+    info.elementType = typeName;
+    info.size = sizeValue;
+    registerArray(info);
 }
 
 void CodeGenerator::genTraverseList(string params) {
-    string arrayName = helper.trimSimple(params);
-    if (arrayName == "") {
-        arrayName = "lista1";
+    string trimmed = helper.trimSimple(params);
+    ArrayInfo info = resolveArrayForText(trimmed);
+    string sizeExpr = arraySizeExpression(info);
+    string indexName = selectIndexName("i");
+    string lowered = toLowerNoAccents(trimmed);
+    if ((int)lowered.find("sumar") >= 0 && (int)lowered.find("total") >= 0) {
+        if (!symbolTable.variableExists("total")) {
+            ensureDeclared("total", info.elementType == "double" ? "double" : "int", "0");
+        }
+        appendLine("for (int " + indexName + " = 0; " + indexName + " < " + sizeExpr + "; " + indexName + "++)");
+        appendLine("{");
+        appendLine("    total += " + info.name + "[" + indexName + "];");
+        appendLine("}");
+        lastLoopArray = info.name;
+        return;
     }
-    bodyLines.appendLine("for (int i = 0; i < N; i++)");
-    bodyLines.appendLine("{");
-    bodyLines.appendLine("    // usar " + arrayName + "[i]");
-    bodyLines.appendLine("}");
+    if ((int)lowered.find("mostrar") >= 0 && structTable.find(info.elementType) != structTable.end()) {
+        StructInfo sinfo = structTable[info.elementType];
+        vector<string> fieldsToShow;
+        for (auto& field : sinfo.fields) {
+            if ((int)lowered.find(toLowerNoAccents(field.first)) >= 0) {
+                fieldsToShow.push_back(field.first);
+            }
+        }
+        if (fieldsToShow.empty()) {
+            for (auto& field : sinfo.fields) {
+                fieldsToShow.push_back(field.first);
+            }
+        }
+        appendLine("for (int " + indexName + " = 0; " + indexName + " < " + sizeExpr + "; " + indexName + "++)");
+        appendLine("{");
+        string expr = "";
+        for (auto& field : fieldsToShow) {
+            if (expr != "") {
+                expr = expr + " << \" \" << ";
+            }
+            expr = expr + info.name + "[" + indexName + "]." + field;
+        }
+        appendLine("    cout << " + expr + " << endl;");
+        appendLine("}");
+        return;
+    }
+    appendLine("for (int " + indexName + " = 0; " + indexName + " < " + sizeExpr + "; " + indexName + "++)");
+    headerJustEmitted = true;
+    nextCloseLine = "";
+    lastLoopArray = info.name;
 }
 
 void CodeGenerator::genAddToList(string params) {
-    bodyLines.appendLine("// agregar a la lista requiere estructura dinamica (vector) no permitida");
+    appendLine("// agregar a la lista requiere estructura dinamica (vector) no permitida");
+}
+
+void CodeGenerator::genCreateStruct(string params) {
+    string text = helper.trimSimple(params);
+    int posCon = helper.indexOfText(text, "con");
+    string structName = helper.trimSimple(posCon >= 0 ? text.substr(0, posCon) : text);
+    string fieldsPart = posCon >= 0 ? helper.trimSimple(text.substr(posCon + 3)) : "";
+    StructInfo info;
+    info.name = structName;
+    string replaced = helper.replaceAllSimple(fieldsPart, " y ", ",");
+    istringstream items(replaced);
+    string item;
+    while (getline(items, item, ',')) {
+        string trimmedItem = helper.trimSimple(item);
+        if (trimmedItem == "") { continue; }
+        string fieldName = item;
+        string typeText = "int";
+        int open = helper.indexOfText(trimmedItem, "(");
+        int close = helper.indexOfText(trimmedItem, ")");
+        if (open >= 0 && close > open) {
+            fieldName = helper.trimSimple(trimmedItem.substr(0, open));
+            typeText = helper.trimSimple(trimmedItem.substr(open + 1, close - open - 1));
+        }
+        else {
+            fieldName = helper.trimSimple(trimmedItem);
+        }
+        string normalizedType = toLowerNoAccents(typeText);
+        string cppType = "int";
+        if (normalizedType.find("decimal") >= 0 || normalizedType.find("real") >= 0 || normalizedType.find("double") >= 0) {
+            cppType = "double";
+        }
+        else if (normalizedType.find("texto") >= 0 || normalizedType.find("cadena") >= 0 || normalizedType.find("string") >= 0) {
+            cppType = "string";
+        }
+        else if (normalizedType.find("bool") >= 0 || normalizedType.find("booleano") >= 0) {
+            cppType = "bool";
+        }
+        else if (normalizedType.find("char") >= 0 || normalizedType.find("caracter") >= 0) {
+            cppType = "char";
+        }
+        info.fields.push_back(make_pair(helper.trimSimple(fieldName), cppType));
+    }
+    appendToPrelude("struct " + structName);
+    appendToPrelude("{");
+    for (auto& field : info.fields) {
+        appendToPrelude("    " + field.second + " " + field.first + ";");
+    }
+    appendToPrelude("};");
+    registerStruct(info);
+}
+
+void CodeGenerator::genReturn(string params) {
+    string expr = helper.trimSimple(params);
+    expr = normalizeBooleanWord(normalizeMathTokens(expr));
+    if (expr == "") {
+        appendLine("return;");
+        return;
+    }
+    appendLine("return " + expr + ";");
 }
 
 void CodeGenerator::genBeginProgram() {
-    bodyLines.appendLine("// comenzar programa");
+    appendLine("// comenzar programa");
 }
 
 void CodeGenerator::genEndProgram() {
-    bodyLines.appendLine("// terminar programa");
+    appendLine("// terminar programa");
 }
 
 void CodeGenerator::genComment(string params) {
-    bodyLines.appendLine("// " + params);
+    appendLine("// " + params);
+}
+
+void CodeGenerator::genDefineFunction(string params) {
+    string signature = helper.trimSimple(params);
+    if (signature == "") {
+        signature = "void funcion()";
+    }
+    int open = helper.indexOfText(signature, "(");
+    if (open < 0) {
+        signature = signature + "()";
+    }
+    appendToPrelude(signature + " {");
+    activeLines = &preludeLines;
+    insideFunction = true;
+    lastIndent = 0;
+    stackCount = 0;
+    headerJustEmitted = false;
+    nextCloseLine = "";
 }
 
 void CodeGenerator::genCallFunction(string params) {
     string callName = helper.trimSimple(params);
     if (callName == "") {
-        bodyLines.appendLine("funcion();");
+        appendLine("funcion();");
         return;
     }
     int open = helper.indexOfText(callName, "(");
     if (open < 0) {
         callName = callName + "()";
     }
-    bodyLines.appendLine(callName + ";");
+    appendLine(callName + ";");
 }
 
 void CodeGenerator::generate(Instruction ins) {
+    int indentLevelRaw = ins.getIndent();
+    beforeEmit(indentLevelRaw);
     string op = ins.getOperation();
     string params = helper.trimSimple(ins.getParameters());
-    int indentLevel = ins.getIndent();
-
-    beforeEmit(indentLevel);
-
-    if (op == "sum") { genSum(params); afterEmit(indentLevel); return; }
-    if (op == "sub") { genSub(params); afterEmit(indentLevel); return; }
-    if (op == "mul") { genMul(params); afterEmit(indentLevel); return; }
-    if (op == "div") { genDiv(params); afterEmit(indentLevel); return; }
-    if (op == "calc") { genCalc(params); afterEmit(indentLevel); return; }
-
-    if (op == "print") { genPrint(params); afterEmit(indentLevel); return; }
-    if (op == "message") { genMessage(params); afterEmit(indentLevel); return; }
-    if (op == "read") { genRead(params); afterEmit(indentLevel); return; }
-
-    if (op == "if") { genIf(params); afterEmit(indentLevel); return; }
-    if (op == "else") { genElse(); afterEmit(indentLevel); return; }
-    if (op == "while") { genWhile(params); afterEmit(indentLevel); return; }
-    if (op == "do_until") { genDoUntil(params); afterEmit(indentLevel); return; }
-    if (op == "for_to") { genForTo(params); afterEmit(indentLevel); return; }
-
-    if (op == "create_var") { genCreateVar(params); afterEmit(indentLevel); return; }
-    if (op == "assign") { genAssign(params); afterEmit(indentLevel); return; }
-
-    if (op == "create_array") { genCreateArray(params); afterEmit(indentLevel); return; }
-    if (op == "traverse_list") { genTraverseList(params); afterEmit(indentLevel); return; }
-    if (op == "add_to_list") { genAddToList(params); afterEmit(indentLevel); return; }
-
-    if (op == "begin_program") { genBeginProgram(); afterEmit(indentLevel); return; }
-    if (op == "end_program") { genEndProgram(); afterEmit(indentLevel); return; }
-    if (op == "comment") { genComment(params); afterEmit(indentLevel); return; }
-    if (op == "def_func") { genDefineFunction(params); afterEmit(indentLevel); return; }
-    if (op == "call_func") { genCallFunction(params); afterEmit(indentLevel); return; }
-
-    bodyLines.appendLine("// unknown: " + params);
-    afterEmit(indentLevel);
+    if (op == "sum") { genSum(params); afterEmit(indentLevelRaw); return; }
+    if (op == "sub") { genSub(params); afterEmit(indentLevelRaw); return; }
+    if (op == "mul") { genMul(params); afterEmit(indentLevelRaw); return; }
+    if (op == "div") { genDiv(params); afterEmit(indentLevelRaw); return; }
+    if (op == "calc") { genCalc(params); afterEmit(indentLevelRaw); return; }
+    if (op == "sum_assign") { genSumAssign(params); afterEmit(indentLevelRaw); return; }
+    if (op == "sub_assign") { genSubAssign(params); afterEmit(indentLevelRaw); return; }
+    if (op == "mul_assign") { genMulAssign(params); afterEmit(indentLevelRaw); return; }
+    if (op == "div_assign") { genDivAssign(params); afterEmit(indentLevelRaw); return; }
+    if (op == "print") { genPrint(params); afterEmit(indentLevelRaw); return; }
+    if (op == "message") { genMessage(params); afterEmit(indentLevelRaw); return; }
+    if (op == "read") { genRead(params); afterEmit(indentLevelRaw); return; }
+    if (op == "if") { genIf(params); afterEmit(indentLevelRaw); return; }
+    if (op == "else") { genElse(); afterEmit(indentLevelRaw); return; }
+    if (op == "while") { genWhile(params); afterEmit(indentLevelRaw); return; }
+    if (op == "do_until") { genDoUntil(params); afterEmit(indentLevelRaw); return; }
+    if (op == "for_to") { genForTo(params); afterEmit(indentLevelRaw); return; }
+    if (op == "create_var") { genCreateVar(params); afterEmit(indentLevelRaw); return; }
+    if (op == "assign") { genAssign(params); afterEmit(indentLevelRaw); return; }
+    if (op == "create_array") { genCreateArray(params); afterEmit(indentLevelRaw); return; }
+    if (op == "traverse_list") { genTraverseList(params); afterEmit(indentLevelRaw); return; }
+    if (op == "add_to_list") { genAddToList(params); afterEmit(indentLevelRaw); return; }
+    if (op == "begin_program") { genBeginProgram(); afterEmit(indentLevelRaw); return; }
+    if (op == "end_program") { genEndProgram(); afterEmit(indentLevelRaw); return; }
+    if (op == "comment") { genComment(params); afterEmit(indentLevelRaw); return; }
+    if (op == "def_func") {
+        functionIndent = indentLevelRaw;
+        functionBodyIndent = indentLevelRaw + 4;
+        genDefineFunction(params);
+        afterEmit(indentLevelRaw);
+        return;
+    }
+    if (op == "call_func") { genCallFunction(params); afterEmit(indentLevelRaw); return; }
+    if (op == "create_struct") { genCreateStruct(params); afterEmit(indentLevelRaw); return; }
+    if (op == "return") { genReturn(params); afterEmit(indentLevelRaw); return; }
+    appendLine("// unknown: " + params);
+    afterEmit(indentLevelRaw);
 }
 
-
 string CodeGenerator::buildProgram() {
+    closeAllBlocks();
+    if (insideFunction) {
+        appendLine("}");
+        insideFunction = false;
+    }
     string out = "";
     out = out + "#include <iostream>\n";
     out = out + "#include <string>\n";
     out = out + "using namespace std;\n\n";
-
     string pre = preludeLines.joinAll();
     if (pre != "") { out = out + pre + "\n\n"; }
-
     out = out + "int main()\n";
     out = out + "{\n";
-
     string body = bodyLines.joinAll();
     out = out + body;
-
-    closeAllBlocks();                      
     if (body != "" && body[(int)body.length() - 1] != '\n') { out = out + "\n"; }
-
     out = out + "return 0;\n";
     out = out + "}\n";
     return out;
@@ -689,10 +1068,18 @@ void CodeGenerator::clearAll() {
     symbolTable.clearList();
     preludeLines.clearAll();
     bodyLines.clearAll();
+    arrayTable.clear();
+    structTable.clear();
+    hasLastArray = false;
+    lastLoopIndex = "";
+    lastLoopArray = "";
     arrayCounter = 1;
     lastIndent = 0;
     stackCount = 0;
     headerJustEmitted = false;
     nextCloseLine = "";
+    activeLines = &bodyLines;
+    insideFunction = false;
+    functionIndent = 0;
+    functionBodyIndent = 0;
 }
-

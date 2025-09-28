@@ -21,6 +21,7 @@ LanguageDictionary::LanguageDictionary() {
     mapOp["lista de"] = "array_of";
     mapOp["recorrer la lista"] = "traverse_list";
     mapOp["agregar a la lista"] = "add_to_list";
+    mapOp["crear estructura"] = "create_struct";
 
     mapIO["imprimir"] = "print";
     mapIO["mostrar"] = "print";
@@ -39,6 +40,8 @@ LanguageDictionary::LanguageDictionary() {
     mapCtrl["comentario"] = "comment";
     mapCtrl["definir funcion"] = "def_func";
     mapCtrl["llamar funcion"] = "call_func";
+    mapCtrl["retornar"] = "return";
+    mapCtrl["retorne"] = "return";
 }
 
 string LanguageDictionary::findOpKey(string text) {

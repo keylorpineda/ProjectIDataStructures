@@ -6,6 +6,15 @@ static int countLeadingIndentSpaces(string text) {
     int spaces = 0;
     while (i < n) {
         char c = text[i];
+        unsigned char uc = static_cast<unsigned char>(c);
+        if (uc == 0xC2 && i + 1 < n) {
+            unsigned char next = static_cast<unsigned char>(text[i + 1]);
+            if (next == 0xA0) { // non-breaking space
+                spaces = spaces + 1;
+                i = i + 2;
+                continue;
+            }
+        }
         if (c == ' ') { spaces = spaces + 1; i = i + 1; }
         else if (c == '\t') { spaces = spaces + 4; i = i + 1; }
         else { break; }

@@ -58,6 +58,8 @@ private:
 
     string normalizeMathTokens(string text);
     string normalizeConditionTokens(string text);
+    vector<string> extractMathOperands(string text);
+    string buildMathExpression(const vector<string>& operands, const string& op);
     int effectiveIndent(int rawIndent);
     string toLowerNoAccents(string text);
     string normalizeBooleanWord(string text);

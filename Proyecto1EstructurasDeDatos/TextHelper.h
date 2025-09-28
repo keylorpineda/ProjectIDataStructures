@@ -10,8 +10,10 @@ private:
     bool isSpaceSimple(char c);
     bool isDigitSimple(char c);
     char toLowerAscii(char c);
+    char removeAccentChar(char c);
 public:
     string toLowerSimple(string text);
+    string removeAccents(string text);
     string trimSimple(string text);
     int indexOfText(string text, string key);
     string cutAfter(string base, string key);

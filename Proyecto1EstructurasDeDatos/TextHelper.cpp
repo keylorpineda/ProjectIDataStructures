@@ -1,6 +1,7 @@
 #include "TextHelper.h"
 
 bool TextHelper::isSpaceSimple(char c) {
+    unsigned char uc = static_cast<unsigned char>(c);
     if (c == ' ') {
         return true;
     }
@@ -17,6 +18,9 @@ bool TextHelper::isSpaceSimple(char c) {
         return true;
     }
     if (c == '\f') {
+        return true;
+    }
+    if (uc == 0xC2 || uc == 0xA0) {
         return true;
     }
     return false;

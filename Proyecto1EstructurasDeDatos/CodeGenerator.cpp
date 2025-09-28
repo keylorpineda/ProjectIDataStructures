@@ -260,6 +260,54 @@ string CodeGenerator::normalizeConditionTokens(string text) {
     return helper.trimSimple(t);
 }
 
+vector<string> CodeGenerator::extractMathOperands(string text) {
+    string cleaned = helper.replaceAllSimple(text, "\t", " ");
+    cleaned = helper.replaceAllSimple(cleaned, ",", " ");
+    cleaned = helper.replaceAllSimple(cleaned, ";", " ");
+    vector<string> operands;
+    istringstream iss(cleaned);
+    string token;
+    while (iss >> token) {
+        string trimmed = helper.trimSimple(token);
+        if (trimmed == "") {
+            continue;
+        }
+        string normalized = toLowerNoAccents(trimmed);
+        if (normalized == "sumar" || normalized == "restar" || normalized == "multiplicar" || normalized == "dividir" ||
+            normalized == "y" || normalized == "por" || normalized == "entre" || normalized == "mas") {
+            continue;
+        }
+        while (!trimmed.empty() && (trimmed.back() == ',' || trimmed.back() == ';')) {
+            trimmed.pop_back();
+        }
+        while (!trimmed.empty() && (trimmed.front() == ',' || trimmed.front() == ';')) {
+            trimmed.erase(trimmed.begin());
+        }
+        trimmed = helper.trimSimple(trimmed);
+        if (trimmed != "") {
+            operands.push_back(trimmed);
+        }
+        if ((int)operands.size() >= 8) {
+            break;
+        }
+    }
+    return operands;
+}
+
+string CodeGenerator::buildMathExpression(const vector<string>& operands, const string& op) {
+    if (operands.empty()) {
+        return string("");
+    }
+    string expression;
+    for (size_t i = 0; i < operands.size(); ++i) {
+        if (!expression.empty()) {
+            expression = expression + " " + op + " ";
+        }
+        expression = expression + operands[i];
+    }
+    return expression;
+}
+
 string CodeGenerator::removeSpaces(string text) {
     return helper.replaceAllSimple(text, " ", "");
 }
@@ -358,20 +406,11 @@ void CodeGenerator::ensureDeclared(string varName, string typeName, string initV
 }
 
 void CodeGenerator::genSum(string params) {
-    string normalized = normalizeMathTokens(params);
-    istringstream iss(normalized);
-    string token;
-    string expression = "";
-    int countTokens = 0;
-    while (iss >> token) {
-        if (expression != "") {
-            expression = expression + " + ";
-        }
-        expression = expression + token;
-        countTokens = countTokens + 1;
-        if (countTokens >= 6) {
-            break;
-        }
+    vector<string> operands = extractMathOperands(params);
+    string expression = buildMathExpression(operands, "+");
+    if (expression == "") {
+        appendLine("// sumar: sin operandos");
+        return;
     }
     ensureDeclared("total", "int", "");
     appendLine("total = " + expression + ";");
@@ -379,63 +418,39 @@ void CodeGenerator::genSum(string params) {
 }
 
 void CodeGenerator::genSub(string params) {
-    string normalized = normalizeMathTokens(params);
-    istringstream iss(normalized);
-    string token;
-    string expression = "";
-    int countTokens = 0;
-    while (iss >> token) {
-        if (expression != "") {
-            expression = expression + " - ";
-        }
-        expression = expression + token;
-        countTokens = countTokens + 1;
-        if (countTokens >= 6) {
-            break;
-        }
+    vector<string> operands = extractMathOperands(params);
+    string expression = buildMathExpression(operands, "-");
+    if (expression == "") {
+        appendLine("// restar: sin operandos");
+        return;
     }
-    appendLine("int resultado = " + expression + ";");
-    appendLine("cout << \"El resultado es: \" << resultado << endl;");
+    ensureDeclared("resultadoResta", "int", "");
+    appendLine("resultadoResta = " + expression + ";");
+    appendLine("cout << \"El resultado es: \" << resultadoResta << endl;");
 }
 
 void CodeGenerator::genMul(string params) {
-    string normalized = normalizeMathTokens(params);
-    istringstream iss(normalized);
-    string token;
-    string expression = "";
-    int countTokens = 0;
-    while (iss >> token) {
-        if (expression != "") {
-            expression = expression + " * ";
-        }
-        expression = expression + token;
-        countTokens = countTokens + 1;
-        if (countTokens >= 6) {
-            break;
-        }
+    vector<string> operands = extractMathOperands(params);
+    string expression = buildMathExpression(operands, "*");
+    if (expression == "") {
+        appendLine("// multiplicar: sin operandos");
+        return;
     }
-    appendLine("int resultado = " + expression + ";");
-    appendLine("cout << \"El resultado es: \" << resultado << endl;");
+    ensureDeclared("resultadoMultiplicacion", "int", "");
+    appendLine("resultadoMultiplicacion = " + expression + ";");
+    appendLine("cout << \"El resultado es: \" << resultadoMultiplicacion << endl;");
 }
 
 void CodeGenerator::genDiv(string params) {
-    string normalized = normalizeMathTokens(params);
-    istringstream iss(normalized);
-    string token;
-    string expression = "";
-    int countTokens = 0;
-    while (iss >> token) {
-        if (expression != "") {
-            expression = expression + " / ";
-        }
-        expression = expression + token;
-        countTokens = countTokens + 1;
-        if (countTokens >= 6) {
-            break;
-        }
+    vector<string> operands = extractMathOperands(params);
+    string expression = buildMathExpression(operands, "/");
+    if (expression == "") {
+        appendLine("// dividir: sin operandos");
+        return;
     }
-    appendLine("double resultado = " + expression + ";");
-    appendLine("cout << \"El resultado es: \" << resultado << endl;");
+    ensureDeclared("resultadoDivision", "double", "");
+    appendLine("resultadoDivision = " + expression + ";");
+    appendLine("cout << \"El resultado es: \" << resultadoDivision << endl;");
 }
 
 void CodeGenerator::genCalc(string params) {

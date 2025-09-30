@@ -3,6 +3,7 @@
 #define VARIABLELIST_H
 
 #include <string>
+#include <vector>
 #include "VariableNode.h"
 using namespace std;
 
@@ -21,6 +22,8 @@ public:
     int getSize();
     bool isEmpty();
     void clearList();
+    vector<Variable> toVector();
+    void loadFromVector(const vector<Variable>& items);
 };
 
 #endif

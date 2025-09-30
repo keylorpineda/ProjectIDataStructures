@@ -39,6 +39,8 @@ private:
     bool insideFunction;
     int functionIndent;
     int functionBodyIndent;
+    vector<Variable> savedSymbolTable;
+    bool hasSavedSymbolTable;
 
     int arrayCounter;
     int lastIndent;
@@ -78,6 +80,7 @@ private:
     bool parseForParts(string text, string& varName, string& startVal, string& endVal);
     string inferTypeFromToken(string token);
     string nextArrayName();
+    void restoreSymbolTableAfterFunction();
 
     void ensureDeclared(string varName, string typeName, string initValue);
 

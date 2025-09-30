@@ -205,6 +205,13 @@ Instruction InstructionProcessor::parseInstruction(string lineText) {
         return ins;
     }
 
+    if (dict.hasCalculate(normalized)) {
+        string rest = cutAfterInsensitive("calcular");
+        Instruction ins("Op", "calc", helper.trimSimple(rest));
+        ins.setIndent(indentSpaces);
+        return ins;
+    }
+
     Instruction assignOp = tryBinaryAssign("multiplicar por", "mul_assign");
     if (assignOp.getCategory() != "") { return assignOp; }
     assignOp = tryBinaryAssign("dividir entre", "div_assign");
@@ -219,13 +226,6 @@ Instruction InstructionProcessor::parseInstruction(string lineText) {
     if (assignOp.getCategory() != "") { return assignOp; }
     assignOp = tryBinaryAssign("multiplicar", "mul_assign");
     if (assignOp.getCategory() != "") { return assignOp; }
-
-    if (dict.hasCalculate(normalized)) {
-        string rest = cutAfterInsensitive("calcular");
-        Instruction ins("Op", "calc", helper.trimSimple(rest));
-        ins.setIndent(indentSpaces);
-        return ins;
-    }
 
     string opKey = dict.findOpKey(normalized);
     if (opKey != "") {

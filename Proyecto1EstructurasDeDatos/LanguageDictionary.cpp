@@ -15,11 +15,17 @@ LanguageDictionary::LanguageDictionary() {
 
     mapOp["crear variable"] = "create_var";
     mapOp["asignar valor"] = "assign";
+    mapOp["asignar"] = "assign";
 
     mapOp["crear lista"] = "create_array";
     mapOp["crear arreglo"] = "create_array";
     mapOp["lista de"] = "array_of";
     mapOp["recorrer la lista"] = "traverse_list";
+    mapOp["ingresar los valores de la lista"] = "fill_array";
+    mapOp["ingresar los valores a la lista"] = "fill_array";
+    mapOp["ingresar los valores"] = "fill_array";
+    mapOp["ingresar valor de cada"] = "fill_array";
+    mapOp["ingresar los datos de cada"] = "fill_array";
     mapOp["agregar a la lista"] = "add_to_list";
     mapOp["crear estructura"] = "create_struct";
 

@@ -108,6 +108,7 @@ private:
     void genAssign(string params);
 
     void genCreateArray(string params);
+    void genFillArray(string params);
     void genTraverseList(string params);
     void genAddToList(string params);
     void genCreateStruct(string params);

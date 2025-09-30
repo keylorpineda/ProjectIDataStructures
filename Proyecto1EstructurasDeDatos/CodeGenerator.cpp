@@ -153,6 +153,17 @@ string CodeGenerator::detectArrayReference(string text) {
         if ((int)lowered.find(loweredName) >= 0) {
             return it.first;
         }
+        string baseName = loweredName;
+        while (!baseName.empty() && baseName.back() >= '0' && baseName.back() <= '9') {
+            baseName.pop_back();
+        }
+        if (!baseName.empty()) {
+            string bracketPattern = baseName + "[";
+            string dotPattern = baseName + ".";
+            if ((int)lowered.find(bracketPattern) >= 0 || (int)lowered.find(dotPattern) >= 0) {
+                return it.first;
+            }
+        }
     }
     if (hasLastArray) {
         return lastArrayInfo.name;
@@ -459,6 +470,10 @@ string CodeGenerator::inferTypeFromToken(string token) {
 }
 
 string CodeGenerator::nextArrayName() {
+    if (arrayCounter == 1) {
+        arrayCounter = arrayCounter + 1;
+        return "lista";
+    }
     ostringstream ss;
     ss << "lista" << arrayCounter;
     arrayCounter = arrayCounter + 1;
@@ -551,7 +566,14 @@ void CodeGenerator::genCalc(string params) {
     string expressionPart = params;
     string targetVar = "resultado";
     if (assignPos >= 0) {
-        expressionPart = helper.trimSimple(params.substr(0, assignPos));
+        int adjustedAssignPos = assignPos;
+        if (assignPos >= 3) {
+            string before = lowered.substr(assignPos - 3, 3);
+            if (before == " y " || before == " e ") {
+                adjustedAssignPos = assignPos - 3;
+            }
+        }
+        expressionPart = helper.trimSimple(params.substr(0, adjustedAssignPos));
         targetVar = helper.trimSimple(params.substr(assignPos + 9));
     }
     int comoPos = (int)toLowerNoAccents(expressionPart).rfind("como");
@@ -1078,6 +1100,27 @@ void CodeGenerator::genCreateArray(string params) {
     registerArray(info);
 }
 
+void CodeGenerator::genFillArray(string params) {
+    string trimmed = helper.trimSimple(params);
+    ArrayInfo info = resolveArrayForText(trimmed);
+    string sizeExpr = arraySizeExpression(info);
+    string indexName = selectIndexName("i");
+    appendLine("for (int " + indexName + " = 0; " + indexName + " < " + sizeExpr + "; " + indexName + "++)");
+    appendLine("{");
+    auto structIt = structTable.find(info.elementType);
+    if (structIt != structTable.end()) {
+        const StructInfo& sinfo = structIt->second;
+        for (size_t k = 0; k < sinfo.fields.size(); ++k) {
+            appendLine("    cin >> " + info.name + "[" + indexName + "]." + sinfo.fields[k].first + ";");
+        }
+    }
+    else {
+        appendLine("    cin >> " + info.name + "[" + indexName + "];");
+    }
+    appendLine("}");
+    lastLoopArray = info.name;
+}
+
 void CodeGenerator::genTraverseList(string params) {
     string trimmed = helper.trimSimple(params);
     ArrayInfo info = resolveArrayForText(trimmed);
@@ -1385,6 +1428,7 @@ void CodeGenerator::generate(Instruction ins) {
     if (op == "create_var") { genCreateVar(params); afterEmit(indentLevelRaw); return; }
     if (op == "assign") { genAssign(params); afterEmit(indentLevelRaw); return; }
     if (op == "create_array") { genCreateArray(params); afterEmit(indentLevelRaw); return; }
+    if (op == "fill_array") { genFillArray(params); afterEmit(indentLevelRaw); return; }
     if (op == "traverse_list") { genTraverseList(params); afterEmit(indentLevelRaw); return; }
     if (op == "add_to_list") { genAddToList(params); afterEmit(indentLevelRaw); return; }
     if (op == "begin_program") { genBeginProgram(); afterEmit(indentLevelRaw); return; }

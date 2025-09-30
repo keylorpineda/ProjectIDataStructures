@@ -1,6 +1,65 @@
 #include "CodeGenerator.h"
 #include <sstream>
 
+static string replaceUtf8Accents(string text) {
+    string result;
+    size_t i = 0;
+    while (i < text.size()) {
+        unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c == 0xC3 && i + 1 < text.size()) {
+            unsigned char next = static_cast<unsigned char>(text[i + 1]);
+            char replacement = 0;
+            switch (next) {
+            case 0x81: // Á
+            case 0xA1: // á
+                replacement = 'a';
+                break;
+            case 0x89: // É
+            case 0xA9: // é
+                replacement = 'e';
+                break;
+            case 0x8D: // Í
+            case 0xAD: // í
+                replacement = 'i';
+                break;
+            case 0x93: // Ó
+            case 0xB3: // ó
+                replacement = 'o';
+                break;
+            case 0x9A: // Ú
+            case 0xBA: // ú
+                replacement = 'u';
+                break;
+            case 0x9C: // Ü
+            case 0xBC: // ü
+                replacement = 'u';
+                break;
+            case 0x91: // Ñ
+            case 0xB1: // ñ
+                replacement = 'n';
+                break;
+            default:
+                break;
+            }
+            if (replacement != 0) {
+                result.push_back(replacement);
+                i = i + 2;
+                continue;
+            }
+        }
+        if (c == 0xC2 && i + 1 < text.size()) {
+            unsigned char next = static_cast<unsigned char>(text[i + 1]);
+            if (next == 0xA1 || next == 0xBF) {
+                i = i + 2;
+                continue;
+            }
+        }
+        result.push_back(text[i]);
+        i = i + 1;
+    }
+    return result;
+}
+
 CodeGenerator::CodeGenerator() {
     arrayCounter = 1;
     lastIndent = 0;
@@ -14,6 +73,7 @@ CodeGenerator::CodeGenerator() {
     hasLastArray = false;
     lastLoopIndex = "";
     lastLoopArray = "";
+    hasSavedSymbolTable = false;
 }
 
 void CodeGenerator::appendLine(const string& text) {
@@ -28,7 +88,9 @@ void CodeGenerator::appendToPrelude(const string& text) {
 }
 
 string CodeGenerator::toLowerNoAccents(string text) {
-    return helper.removeAccents(helper.toLowerSimple(text));
+    string replaced = replaceUtf8Accents(text);
+    string lowered = helper.toLowerSimple(replaced);
+    return helper.removeAccents(lowered);
 }
 
 string CodeGenerator::normalizeBooleanWord(string text) {
@@ -168,6 +230,7 @@ void CodeGenerator::beforeEmit(int newIndentRaw) {
             stackCount = 0;
             headerJustEmitted = false;
             nextCloseLine = "";
+            restoreSymbolTableAfterFunction();
         }
     }
     int newIndent = effectiveIndent(newIndentRaw);
@@ -400,6 +463,14 @@ string CodeGenerator::nextArrayName() {
     ss << "lista" << arrayCounter;
     arrayCounter = arrayCounter + 1;
     return ss.str();
+}
+
+void CodeGenerator::restoreSymbolTableAfterFunction() {
+    if (hasSavedSymbolTable) {
+        symbolTable.loadFromVector(savedSymbolTable);
+        hasSavedSymbolTable = false;
+        savedSymbolTable.clear();
+    }
 }
 
 void CodeGenerator::ensureDeclared(string varName, string typeName, string initValue) {
@@ -680,8 +751,97 @@ static string normalizeInitialValue(TextHelper& helper, const string& value) {
     return trimmed;
 }
 
+static string cleanIdentifierToken(TextHelper& helper, string token) {
+    string cleaned = helper.trimSimple(token);
+    while (!cleaned.empty() && (cleaned.back() == ',' || cleaned.back() == ';' || cleaned.back() == ')')) {
+        cleaned.pop_back();
+    }
+    while (!cleaned.empty() && cleaned.front() == '(') {
+        cleaned.erase(cleaned.begin());
+    }
+    cleaned = helper.trimSimple(cleaned);
+    while (!cleaned.empty() && (cleaned.front() == ',')) {
+        cleaned.erase(cleaned.begin());
+    }
+    cleaned = helper.trimSimple(cleaned);
+    return cleaned;
+}
+
+static string detectTypeFromTokens(TextHelper& helper, const vector<string>& tokens, const vector<string>& normalized, int startIndex, int& nextIndex) {
+    int total = (int)normalized.size();
+    if (startIndex < 0 || startIndex >= total) {
+        nextIndex = startIndex;
+        return string("");
+    }
+    string current = normalized[startIndex];
+    auto setNext = [&](int value) {
+        nextIndex = value;
+    };
+    if (current == "numero") {
+        if (startIndex + 1 < total) {
+            string second = normalized[startIndex + 1];
+            if (second == "entero" || second == "integer") {
+                setNext(startIndex + 2);
+                return "int";
+            }
+            if (second == "decimal" || second == "real" || second == "doble" || second == "double" || second == "float") {
+                setNext(startIndex + 2);
+                return "double";
+            }
+            if (second == "booleano" || second == "bool" || second == "logico") {
+                setNext(startIndex + 2);
+                return "bool";
+            }
+            if (second == "texto" || second == "string" || second == "cadena") {
+                setNext(startIndex + 2);
+                return "string";
+            }
+            if (second == "caracter" || second == "char") {
+                setNext(startIndex + 2);
+                return "char";
+            }
+        }
+        setNext(startIndex + 1);
+        return "int";
+    }
+    if (current == "entero" || current == "int") {
+        setNext(startIndex + 1);
+        return "int";
+    }
+    if (current == "decimal" || current == "double" || current == "doble" || current == "real" || current == "float") {
+        setNext(startIndex + 1);
+        return "double";
+    }
+    if (current == "booleano" || current == "bool" || current == "logico") {
+        setNext(startIndex + 1);
+        return "bool";
+    }
+    if (current == "texto" || current == "string" || current == "palabra") {
+        setNext(startIndex + 1);
+        return "string";
+    }
+    if (current == "cadena") {
+        if (startIndex + 2 < total && normalized[startIndex + 1] == "de" && normalized[startIndex + 2] == "texto") {
+            setNext(startIndex + 3);
+            return "string";
+        }
+        setNext(startIndex + 1);
+        return "string";
+    }
+    if (current == "caracter" || current == "char") {
+        setNext(startIndex + 1);
+        return "char";
+    }
+    if (current == "void" || current == "vacio" || current == "vacia" || current == "nada" || current == "procedimiento") {
+        setNext(startIndex + 1);
+        return "void";
+    }
+    nextIndex = startIndex;
+    return string("");
+}
+
 void CodeGenerator::genCreateVar(string params) {
-    string text = helper.trimSimple(params);
+    string text = replaceUtf8Accents(helper.trimSimple(params));
     string typeName = "int";
     string varName = "";
     string initValue = "";
@@ -799,19 +959,56 @@ void CodeGenerator::genCreateVar(string params) {
 }
 
 void CodeGenerator::genAssign(string params) {
-    string text = helper.trimSimple(params);
+    string text = replaceUtf8Accents(helper.trimSimple(params));
     string varName = "";
     string value = "";
-    int posA = helper.indexOfText(text, " a ");
-    if (posA >= 0) {
-        value = helper.trimSimple(text.substr(0, posA));
-        varName = helper.trimSimple(text.substr(posA + 3));
+    string normalized = toLowerNoAccents(text);
+    if ((int)normalized.rfind("a ", 0) == 0) {
+        string afterA = helper.trimSimple(text.substr(1));
+        int posCon = helper.indexOfText(afterA, " con ");
+        if (posCon >= 0) {
+            varName = helper.trimSimple(afterA.substr(0, posCon));
+            value = helper.trimSimple(afterA.substr(posCon + 5));
+        }
+        else {
+            int eq = helper.indexOfText(afterA, "=");
+            if (eq >= 0) {
+                varName = helper.trimSimple(afterA.substr(0, eq));
+                value = helper.trimSimple(afterA.substr(eq + 1));
+            }
+        }
     }
-    else {
+    if (varName == "") {
+        int posA = helper.indexOfText(text, " a ");
+        if (posA >= 0) {
+            value = helper.trimSimple(text.substr(0, posA));
+            varName = helper.trimSimple(text.substr(posA + 3));
+        }
+    }
+    if (varName == "" || value == "") {
+        int posCon = helper.indexOfText(text, " con ");
+        if (posCon >= 0) {
+            string left = helper.trimSimple(text.substr(0, posCon));
+            string right = helper.trimSimple(text.substr(posCon + 5));
+            string normalizedLeft = toLowerNoAccents(left);
+            if ((int)normalizedLeft.rfind("a ", 0) == 0) {
+                varName = helper.trimSimple(left.substr(1));
+                value = right;
+            }
+        }
+    }
+    if (varName == "" || value == "") {
         bool ok = splitAssignRight(text, varName, value);
         if (!ok) {
             appendLine("// asignar valor: formato no reconocido");
             return;
+        }
+    }
+    string normalizedValue = toLowerNoAccents(value);
+    if ((int)normalizedValue.rfind("llamar funcion", 0) == 0) {
+        int offset = (int)string("llamar funcion").length();
+        if ((int)value.length() >= offset) {
+            value = helper.trimSimple(value.substr(offset));
         }
     }
     value = normalizeBooleanWord(normalizeMathTokens(value));
@@ -1006,15 +1203,142 @@ void CodeGenerator::genComment(string params) {
 }
 
 void CodeGenerator::genDefineFunction(string params) {
-    string signature = helper.trimSimple(params);
-    if (signature == "") {
-        signature = "void funcion()";
+    string rawSignature = helper.trimSimple(params);
+    string asciiSignature = replaceUtf8Accents(rawSignature);
+    string normalizedSignature = helper.toLowerSimple(asciiSignature);
+    vector<string> paramMarkers = {
+        "con parametro", "con parametros", "con el parametro", "con los parametros",
+        "con argumento", "con argumentos", "con el argumento", "con los argumentos"
+    };
+    int paramsPos = -1;
+    int markerLength = 0;
+    for (const auto& marker : paramMarkers) {
+        int pos = helper.indexOfText(normalizedSignature, marker);
+        if (pos >= 0) {
+            paramsPos = pos;
+            markerLength = (int)marker.length();
+            break;
+        }
     }
-    int open = helper.indexOfText(signature, "(");
-    if (open < 0) {
-        signature = signature + "()";
+    string beforePart = asciiSignature;
+    string paramsPart = "";
+    if (paramsPos >= 0) {
+        beforePart = helper.trimSimple(asciiSignature.substr(0, paramsPos));
+        paramsPart = helper.trimSimple(asciiSignature.substr(paramsPos + markerLength));
     }
-    appendToPrelude(signature + " {");
+    vector<string> tokens;
+    vector<string> normalized;
+    istringstream iss(beforePart);
+    string token;
+    while (iss >> token) {
+        string cleaned = cleanIdentifierToken(helper, token);
+        if (cleaned == "") {
+            continue;
+        }
+        tokens.push_back(cleaned);
+        string lowered = helper.toLowerSimple(cleaned);
+        normalized.push_back(helper.removeAccents(lowered));
+    }
+
+    string returnType = "void";
+    int indexName = 0;
+    if (!tokens.empty()) {
+        int nextIndex = 0;
+        string typeCandidate = detectTypeFromTokens(helper, tokens, normalized, 0, nextIndex);
+        if (typeCandidate != "") {
+            returnType = typeCandidate;
+            indexName = nextIndex;
+        }
+    }
+
+    while (indexName < (int)normalized.size() && (normalized[indexName] == "funcion" || normalized[indexName] == "function")) {
+        indexName = indexName + 1;
+    }
+
+    string functionName = "funcion";
+    if (indexName < (int)tokens.size()) {
+        functionName = cleanIdentifierToken(helper, tokens[indexName]);
+        if (functionName == "") {
+            functionName = "funcion";
+        }
+    }
+
+    vector<pair<string, string>> parameters;
+    string normalizedParams = toLowerNoAccents(paramsPart);
+    if (normalizedParams != "" && normalizedParams.find("sin parametro") == string::npos && normalizedParams.find("sin argumento") == string::npos) {
+        vector<string> paramTokens;
+        vector<string> paramNormalized;
+        istringstream pss(paramsPart);
+        string ptoken;
+        while (pss >> ptoken) {
+            string cleaned = cleanIdentifierToken(helper, ptoken);
+            if (cleaned == "") {
+                continue;
+            }
+            paramTokens.push_back(cleaned);
+            string lowered = helper.toLowerSimple(cleaned);
+            paramNormalized.push_back(helper.removeAccents(lowered));
+        }
+        int i = 0;
+        int paramIndex = 1;
+        while (i < (int)paramTokens.size()) {
+            string norm = paramNormalized[i];
+            if (norm == "" || norm == "y" || norm == "e" || norm == "con" || norm == "parametro" || norm == "parametros" ||
+                norm == "argumento" || norm == "argumentos" || norm == "el" || norm == "la" || norm == "los" || norm == "las" ||
+                norm == "de" || norm == "del") {
+                i = i + 1;
+                continue;
+            }
+            int nextIndex = i;
+            string typeCandidate = detectTypeFromTokens(helper, paramTokens, paramNormalized, i, nextIndex);
+            if (typeCandidate != "") {
+                string paramName = "";
+                if (nextIndex < (int)paramTokens.size()) {
+                    paramName = cleanIdentifierToken(helper, paramTokens[nextIndex]);
+                    nextIndex = nextIndex + 1;
+                }
+                if (paramName == "") {
+                    ostringstream generated;
+                    generated << "param" << paramIndex;
+                    paramName = generated.str();
+                }
+                parameters.push_back(make_pair(typeCandidate, paramName));
+                i = nextIndex;
+                paramIndex = paramIndex + 1;
+                continue;
+            }
+            string paramName = cleanIdentifierToken(helper, paramTokens[i]);
+            if (paramName == "") {
+                ostringstream generated;
+                generated << "param" << paramIndex;
+                paramName = generated.str();
+            }
+            parameters.push_back(make_pair("int", paramName));
+            i = i + 1;
+            paramIndex = paramIndex + 1;
+        }
+    }
+
+    ostringstream signature;
+    signature << returnType << " " << functionName << "(";
+    for (size_t i = 0; i < parameters.size(); ++i) {
+        if (i > 0) {
+            signature << ", ";
+        }
+        signature << parameters[i].first << " " << parameters[i].second;
+    }
+    signature << ")";
+
+    if (!hasSavedSymbolTable) {
+        savedSymbolTable = symbolTable.toVector();
+        hasSavedSymbolTable = true;
+    }
+    symbolTable.clearList();
+    for (auto& param : parameters) {
+        symbolTable.addOrUpdateVariable(Variable(param.second, param.first, ""));
+    }
+
+    appendToPrelude(signature.str() + " {");
     activeLines = &preludeLines;
     insideFunction = true;
     lastIndent = 0;
@@ -1085,6 +1409,7 @@ string CodeGenerator::buildProgram() {
     if (insideFunction) {
         appendLine("}");
         insideFunction = false;
+        restoreSymbolTableAfterFunction();
     }
     string out = "";
     out = out + "#include <iostream>\n";
@@ -1120,4 +1445,6 @@ void CodeGenerator::clearAll() {
     insideFunction = false;
     functionIndent = 0;
     functionBodyIndent = 0;
+    savedSymbolTable.clear();
+    hasSavedSymbolTable = false;
 }

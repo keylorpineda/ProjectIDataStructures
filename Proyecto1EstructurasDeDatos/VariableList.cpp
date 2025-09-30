@@ -1,5 +1,6 @@
 #include "VariableList.h"
 
+
 VariableList::VariableList() { head = 0; }
 VariableList::~VariableList() { clearList(); }
 
@@ -94,4 +95,21 @@ void VariableList::clearList() {
         current = nextNode;
     }
     head = 0;
+}
+
+vector<Variable> VariableList::toVector() {
+    vector<Variable> items;
+    VariableNode* current = head;
+    while (current != 0) {
+        items.push_back(current->data);
+        current = current->next;
+    }
+    return items;
+}
+
+void VariableList::loadFromVector(const vector<Variable>& items) {
+    clearList();
+    for (const auto& var : items) {
+        addOrUpdateVariable(var);
+    }
 }

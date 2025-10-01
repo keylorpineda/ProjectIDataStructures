@@ -14,8 +14,8 @@
 #include <QTextStream>
 #include <QClipboard>
 #include <QGuiApplication>
-#include <QProgressDialog>
 #include <QTimer>
+#include <QString>
 
 #include "InstructionProcessor.h"
 #include "CodeGenerator.h"
@@ -29,22 +29,29 @@ public:
 
 private:
     QLabel* titleLabel;
+    QLabel* subtitleLabel;
     QPlainTextEdit* inputEdit;
     QPlainTextEdit* codeEdit;
     QPushButton* loadButton;
     QPushButton* translateButton;
     QPushButton* exportButton;
     QPushButton* copyButton;
+    QLabel* statusChip;
     InstructionProcessor processor;
     CodeGenerator generator;
     InstructionHighlighter* highlighter;
-    QProgressDialog* progress;
+    QString metricsSummary;
+    QString statusStateText;
+    bool isTranslating;
     void buildUi();
     void applyDarkTheme();
     void connectSignals();
     void translateAllLines();
-    void showBusy();
-    void hideBusy();
+    void updateInputMetrics();
+    void setTranslatingState(bool active);
+    void updateStatusLabel(const QString& stateText);
+    void setStatusState(const QString& stateName);
+    void scheduleStatusReset(int durationMs = 2200);
 
 private slots:
     void onLoadClicked();

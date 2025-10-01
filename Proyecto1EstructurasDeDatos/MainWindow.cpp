@@ -226,12 +226,6 @@ void MainWindow::buildUi() {
     titleLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     root->addWidget(titleLabel, 0, Qt::AlignHCenter);
 
-    subtitleLabel = new QLabel("Convierte instrucciones en C++ de forma inmediata", central);
-    subtitleLabel->setObjectName("subtitleLabel");
-    subtitleLabel->setAlignment(Qt::AlignCenter);
-    subtitleLabel->setWordWrap(true);
-    root->addWidget(subtitleLabel, 0, Qt::AlignHCenter);
-
     editorSplitter = new QSplitter(Qt::Horizontal, central);
     editorSplitter->setObjectName("editorSplitter");
     editorSplitter->setHandleWidth(12);

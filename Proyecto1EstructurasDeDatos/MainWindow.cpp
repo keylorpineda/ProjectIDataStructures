@@ -11,6 +11,7 @@
 #include <QScrollBar>
 #include <QFileInfo>
 #include <QStringList>
+#include <QFontDatabase>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
@@ -339,12 +340,35 @@ void MainWindow::buildUi() {
         btn->setCursor(Qt::PointingHandCursor);
     }
 
-    QFont mono(QStringLiteral("JetBrains Mono"));
-    mono.setStyleHint(QFont::Monospace);
-    mono.setFallbackFamilies(QStringList()
+    const QStringList candidateFamilies = QStringList()
+        << QStringLiteral("JetBrains Mono")
+        << QStringLiteral("Fira Code")
         << QStringLiteral("Consolas")
         << QStringLiteral("Courier New")
-        << QStringLiteral("DejaVu Sans Mono"));
+        << QStringLiteral("DejaVu Sans Mono");
+
+    QStringList availableFamilies;
+    for (const QString& family : candidateFamilies) {
+        if (QFontDatabase::hasFamily(family)) {
+            availableFamilies << family;
+        }
+    }
+
+    QFont mono;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    if (!availableFamilies.isEmpty()) {
+        mono.setFamilies(availableFamilies);
+    } else {
+        mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    }
+#else
+    if (!availableFamilies.isEmpty()) {
+        mono.setFamily(availableFamilies.first());
+    } else {
+        mono = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    }
+#endif
+    mono.setStyleHint(QFont::Monospace);
     mono.setPointSize(13);
     inputEdit->setFont(mono);
     codeEdit->setFont(mono);

@@ -6,21 +6,40 @@
 #include <QTextBlockFormat>
 #include <QTextCursor>
 #include <QGraphicsDropShadowEffect>
+#include <QGraphicsOpacityEffect>
 #include <QRegularExpression>
 #include <QStyle>
 #include <QScrollBar>
 #include <QFileInfo>
 #include <QStringList>
 #include <QFontDatabase>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDropEvent>
+#include <QEasingCurve>
+#include <QResizeEvent>
+#include <QUrl>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
+    dropOverlayLabel(nullptr),
+    loadButton(nullptr),
+    translateButton(nullptr),
+    exportButton(nullptr),
+    copyButton(nullptr),
+    statusChip(nullptr),
+    editorSplitter(nullptr),
+    leftCard(nullptr),
+    rightCard(nullptr),
     metricsSummary(QStringLiteral("Líneas: 0 • Palabras: 0")),
     statusStateText(QStringLiteral("Listo")),
     isTranslating(false) {
     applyDarkTheme();
     buildUi();
     connectSignals();
+    initEntryAnimations();
+    setAcceptDrops(true);
 }
 
 void MainWindow::applyDarkTheme() {
@@ -52,8 +71,8 @@ void MainWindow::applyDarkTheme() {
         "}"
         "QLabel#subtitleLabel {"
         "  color: #9aa0a6;"
-        "  font-size: 11pt;"
-        "  margin-bottom: 12px;"
+        "  font-size: 11.2pt;"
+        "  margin-bottom: 18px;"
         "}"
         "QLabel#editorTitle {"
         "  color: #9aa0a6;"
@@ -67,8 +86,13 @@ void MainWindow::applyDarkTheme() {
         "}"
         "QFrame#editorCard {"
         "  background: rgba(22, 26, 36, 0.92);"
-        "  border: 1px solid #262c39;"
-        "  border-radius: 16px;"
+        "  border: 1px solid rgba(66, 90, 130, 0.35);"
+        "  border-radius: 20px;"
+        "  transition: all 180ms ease-in-out;"
+        "}"
+        "QFrame#editorCard[dragging='true'] {"
+        "  border: 1.2px dashed #7ba9ff;"
+        "  background: rgba(30, 38, 58, 0.95);"
         "}"
         "QPlainTextEdit {"
         "  font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;"
@@ -92,17 +116,17 @@ void MainWindow::applyDarkTheme() {
         "  background: #32394b;"
         "}"
         "QPushButton {"
-        "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2a3040, stop:1 #1c212c);"
-        "  border: 1px solid #3b4254;"
-        "  border-radius: 10px;"
-        "  padding: 8px 18px;"
+        "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #2d3346, stop:1 #202433);"
+        "  border: 1px solid rgba(123, 169, 255, 0.16);"
+        "  border-radius: 12px;"
+        "  padding: 10px 22px;"
         "  color: #f1f3f4;"
-        "  font-size: 11pt;"
+        "  font-size: 11.2pt;"
         "  font-weight: 500;"
         "}"
         "QPushButton:hover {"
         "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #32394c, stop:1 #242a36);"
-        "  border-color: #4c556a;"
+        "  border-color: rgba(123, 169, 255, 0.35);"
         "}"
         "QPushButton:pressed {"
         "  background: #1a1f28;"
@@ -124,8 +148,11 @@ void MainWindow::applyDarkTheme() {
         "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #35717a, stop:1 #27565e);"
         "}"
         "QPushButton#copyButton {"
-        "  padding: 6px 16px;"
-        "  font-size: 10.5pt;"
+        "  padding: 6px 18px;"
+        "  font-size: 10.8pt;"
+        "}"
+        "QPushButton#loadButton {"
+        "  min-width: 220px;"
         "}"
         "QLabel#statusChip {"
         "  padding: 6px 14px;"
@@ -190,8 +217,8 @@ void MainWindow::buildUi() {
     central->setObjectName("centralBackground");
 
     QVBoxLayout* root = new QVBoxLayout(central);
-    root->setContentsMargins(28, 18, 28, 26);
-    root->setSpacing(10);
+    root->setContentsMargins(32, 20, 32, 28);
+    root->setSpacing(14);
 
     titleLabel = new QLabel("Traductor a C++", central);
     titleLabel->setObjectName("titleLabel");
@@ -205,28 +232,30 @@ void MainWindow::buildUi() {
     subtitleLabel->setWordWrap(true);
     root->addWidget(subtitleLabel, 0, Qt::AlignHCenter);
 
-    QSplitter* split = new QSplitter(Qt::Horizontal, central);
-    split->setObjectName("editorSplitter");
-    split->setHandleWidth(10);
-    split->setChildrenCollapsible(false);
-    split->setOpaqueResize(false);
+    editorSplitter = new QSplitter(Qt::Horizontal, central);
+    editorSplitter->setObjectName("editorSplitter");
+    editorSplitter->setHandleWidth(12);
+    editorSplitter->setChildrenCollapsible(false);
+    editorSplitter->setOpaqueResize(false);
+    editorSplitter->setMinimumHeight(560);
 
-    QWidget* left = new QWidget(split);
+    QWidget* left = new QWidget(editorSplitter);
     QVBoxLayout* leftLayout = new QVBoxLayout(left);
     leftLayout->setContentsMargins(0, 0, 0, 0);
     leftLayout->setSpacing(0);
 
-    QFrame* leftCard = new QFrame(left);
+    leftCard = new QFrame(left);
     leftCard->setObjectName("editorCard");
     QVBoxLayout* leftCardLayout = new QVBoxLayout(leftCard);
-    leftCardLayout->setContentsMargins(24, 22, 24, 24);
-    leftCardLayout->setSpacing(12);
+    leftCardLayout->setContentsMargins(30, 28, 30, 30);
+    leftCardLayout->setSpacing(16);
+    leftCard->setMinimumWidth(520);
 
     QLabel* inputHeader = new QLabel("Lenguaje natural", leftCard);
     inputHeader->setObjectName("editorTitle");
     leftCardLayout->addWidget(inputHeader);
 
-    QLabel* hintLabel = new QLabel("Escribe una instrucción por línea para obtener el mejor resultado.", leftCard);
+    QLabel* hintLabel = new QLabel("Escribe una instrucción por línea o arrastra un archivo .txt.", leftCard);
     hintLabel->setObjectName("hintLabel");
     hintLabel->setWordWrap(true);
     leftCardLayout->addWidget(hintLabel);
@@ -234,22 +263,39 @@ void MainWindow::buildUi() {
     inputEdit = new QPlainTextEdit(leftCard);
     inputEdit->setPlaceholderText("Escribe instrucciones o carga un archivo .txt...");
     inputEdit->setWordWrapMode(QTextOption::NoWrap);
-    leftCardLayout->addWidget(inputEdit);
+    inputEdit->setMinimumHeight(420);
+    leftCardLayout->addWidget(inputEdit, 1);
+
+    dropOverlayLabel = new QLabel("Suelta aquí tu archivo .txt", inputEdit->viewport());
+    dropOverlayLabel->setAlignment(Qt::AlignCenter);
+    dropOverlayLabel->setStyleSheet(
+        "background: rgba(16, 22, 34, 0.88);"
+        "border: 1.2px dashed rgba(123, 169, 255, 0.6);"
+        "border-radius: 12px;"
+        "color: #9cbcff;"
+        "font-size: 12pt;"
+        "letter-spacing: 0.6px;"
+        "text-transform: uppercase;"
+    );
+    dropOverlayLabel->setWordWrap(true);
+    dropOverlayLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    dropOverlayLabel->hide();
 
     leftLayout->addWidget(leftCard);
 
     highlighter = new InstructionHighlighter(inputEdit->document());
 
-    QWidget* right = new QWidget(split);
+    QWidget* right = new QWidget(editorSplitter);
     QVBoxLayout* rightLayout = new QVBoxLayout(right);
     rightLayout->setContentsMargins(0, 0, 0, 0);
     rightLayout->setSpacing(0);
 
-    QFrame* rightCard = new QFrame(right);
+    rightCard = new QFrame(right);
     rightCard->setObjectName("editorCard");
     QVBoxLayout* rightCardLayout = new QVBoxLayout(rightCard);
-    rightCardLayout->setContentsMargins(24, 22, 24, 24);
-    rightCardLayout->setSpacing(12);
+    rightCardLayout->setContentsMargins(30, 28, 30, 30);
+    rightCardLayout->setSpacing(16);
+    rightCard->setMinimumWidth(520);
 
     QHBoxLayout* rightHeader = new QHBoxLayout();
     rightHeader->setContentsMargins(0, 0, 0, 0);
@@ -263,7 +309,7 @@ void MainWindow::buildUi() {
     copyButton = new QPushButton("Copiar código", rightCard);
     copyButton->setObjectName("copyButton");
     copyButton->setToolTip("Copiar el código generado al portapapeles");
-    copyButton->setMinimumWidth(140);
+    copyButton->setMinimumWidth(150);
     rightHeader->addWidget(copyButton);
 
     rightCardLayout->addLayout(rightHeader);
@@ -272,33 +318,33 @@ void MainWindow::buildUi() {
     codeEdit->setPlaceholderText("El código C++ aparecerá aquí...");
     codeEdit->setReadOnly(true);
     codeEdit->setWordWrapMode(QTextOption::NoWrap);
-    rightCardLayout->addWidget(codeEdit);
+    codeEdit->setMinimumHeight(420);
+    rightCardLayout->addWidget(codeEdit, 1);
 
     rightLayout->addWidget(rightCard);
 
-    split->addWidget(left);
-    split->addWidget(right);
-    split->setStretchFactor(0, 1);
-    split->setStretchFactor(1, 1);
+    editorSplitter->addWidget(left);
+    editorSplitter->addWidget(right);
+    editorSplitter->setStretchFactor(0, 1);
+    editorSplitter->setStretchFactor(1, 1);
 
     QList<int> sizes;
-    sizes << 1 << 1;
-    split->setSizes(sizes);
+    sizes << 600 << 600;
+    editorSplitter->setSizes(sizes);
 
-    root->addWidget(split);
+    root->addWidget(editorSplitter, 1);
 
     QHBoxLayout* bottom = new QHBoxLayout();
     bottom->setContentsMargins(0, 16, 0, 0);
-    bottom->setSpacing(18);
+    bottom->setSpacing(20);
 
     loadButton = new QPushButton("Cargar instrucciones", central);
     loadButton->setObjectName("loadButton");
-    loadButton->setMinimumWidth(200);
     loadButton->setToolTip("Abrir instrucciones desde un archivo de texto");
 
     translateButton = new QPushButton("Traducir", central);
     translateButton->setObjectName("translateButton");
-    translateButton->setMinimumWidth(140);
+    translateButton->setMinimumWidth(150);
     translateButton->setToolTip("Generar el código C++");
 
     exportButton = new QPushButton("Exportar a .cpp", central);
@@ -316,28 +362,38 @@ void MainWindow::buildUi() {
 
     bottom->addWidget(loadButton);
     bottom->addWidget(statusChip);
-    bottom->addStretch();
+    bottom->addStretch(2);
     bottom->addWidget(translateButton);
     bottom->addWidget(exportButton);
 
     root->addLayout(bottom);
+    root->setStretch(0, 0);
+    root->setStretch(1, 0);
+    root->setStretch(2, 1);
+    root->setStretch(3, 0);
 
     setCentralWidget(central);
     setWindowTitle("Traductor a C++");
 
     auto applyShadow = [](QWidget* target) {
         auto* effect = new QGraphicsDropShadowEffect(target);
-        effect->setBlurRadius(26);
-        effect->setOffset(0, 14);
-        effect->setColor(QColor(0, 0, 0, 140));
+        effect->setBlurRadius(32);
+        effect->setOffset(0, 20);
+        effect->setColor(QColor(0, 0, 0, 160));
         target->setGraphicsEffect(effect);
     };
     applyShadow(leftCard);
     applyShadow(rightCard);
 
+    if (dropOverlayLabel) {
+        dropOverlayLabel->raise();
+    }
+
     QList<QPushButton*> clickableButtons = { loadButton, translateButton, exportButton, copyButton };
     for (QPushButton* btn : clickableButtons) {
-        btn->setCursor(Qt::PointingHandCursor);
+        if (btn) {
+            btn->setCursor(Qt::PointingHandCursor);
+        }
     }
 
     const QStringList candidateFamilies = QStringList()
@@ -389,9 +445,10 @@ void MainWindow::buildUi() {
     inputEdit->setCenterOnScroll(true);
     codeEdit->setCenterOnScroll(true);
 
+    updateDropOverlayGeometry();
     updateInputMetrics();
 
-    resize(1160, 720);
+    resize(1280, 780);
     QTimer::singleShot(0, this, [this]() {
         if (QScreen* screen = QGuiApplication::primaryScreen()) {
             const QRect available = screen->availableGeometry();
@@ -408,6 +465,96 @@ void MainWindow::connectSignals() {
     connect(exportButton, &QPushButton::clicked, this, &MainWindow::onExportClicked);
     connect(copyButton, &QPushButton::clicked, this, &MainWindow::onCopyClicked);
     connect(inputEdit, &QPlainTextEdit::textChanged, this, &MainWindow::updateInputMetrics);
+    connect(loadButton, &QPushButton::clicked, this, [this]() { pulseButton(loadButton); });
+    connect(translateButton, &QPushButton::clicked, this, [this]() { pulseButton(translateButton); });
+    connect(exportButton, &QPushButton::clicked, this, [this]() { pulseButton(exportButton); });
+    connect(copyButton, &QPushButton::clicked, this, [this]() { pulseButton(copyButton); });
+}
+
+void MainWindow::initEntryAnimations() {
+    setWindowOpacity(0.0);
+    QTimer::singleShot(20, this, [this]() {
+        QPropertyAnimation* fadeIn = new QPropertyAnimation(this, "windowOpacity", this);
+        fadeIn->setDuration(380);
+        fadeIn->setStartValue(0.0);
+        fadeIn->setEndValue(1.0);
+        fadeIn->setEasingCurve(QEasingCurve::OutCubic);
+        fadeIn->start(QAbstractAnimation::DeleteWhenStopped);
+
+        if (!leftCard || !rightCard) {
+            return;
+        }
+
+        QRect leftGeom = leftCard->geometry();
+        QRect rightGeom = rightCard->geometry();
+
+        leftCard->setGeometry(leftGeom.translated(0, 36));
+        rightCard->setGeometry(rightGeom.translated(0, 36));
+
+        auto* group = new QParallelAnimationGroup(this);
+
+        auto createAnim = [&](QWidget* widget, const QRect& finalGeom) {
+            QPropertyAnimation* anim = new QPropertyAnimation(widget, "geometry", group);
+            anim->setDuration(520);
+            anim->setStartValue(widget->geometry());
+            anim->setEndValue(finalGeom);
+            anim->setEasingCurve(QEasingCurve::OutCubic);
+            group->addAnimation(anim);
+        };
+
+        createAnim(leftCard, leftGeom);
+        createAnim(rightCard, rightGeom);
+
+        group->start(QAbstractAnimation::DeleteWhenStopped);
+    });
+}
+
+void MainWindow::pulseButton(QPushButton* button) {
+    if (!button) {
+        return;
+    }
+    QGraphicsOpacityEffect* effect = qobject_cast<QGraphicsOpacityEffect*>(button->graphicsEffect());
+    if (!effect) {
+        effect = new QGraphicsOpacityEffect(button);
+        effect->setOpacity(1.0);
+        button->setGraphicsEffect(effect);
+    }
+
+    QPropertyAnimation* anim = new QPropertyAnimation(effect, "opacity", button);
+    anim->setDuration(260);
+    anim->setStartValue(1.0);
+    anim->setKeyValueAt(0.5, 0.75);
+    anim->setEndValue(1.0);
+    anim->setEasingCurve(QEasingCurve::InOutQuad);
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::loadInstructionsFromFile(const QString& path) {
+    if (path.isEmpty()) {
+        return;
+    }
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        codeEdit->setPlainText("No se pudo abrir el archivo.");
+        setStatusState(QStringLiteral("warning"));
+        updateStatusLabel(QStringLiteral("Error al abrir archivo"));
+        scheduleStatusReset();
+        return;
+    }
+
+    QTextStream in(&f);
+    QString content = in.readAll();
+    f.close();
+
+    inputEdit->setPlainText(content);
+    updateInputMetrics();
+
+    QFileInfo info(path);
+    const QString fileName = info.fileName();
+    setStatusState(QStringLiteral("success"));
+    updateStatusLabel(QStringLiteral("Archivo cargado: %1").arg(fileName));
+    scheduleStatusReset();
 }
 
 void MainWindow::updateInputMetrics() {
@@ -493,32 +640,85 @@ void MainWindow::translateAllLines() {
     }
 }
 
+void MainWindow::updateDropOverlayGeometry() {
+    if (!dropOverlayLabel || !inputEdit) {
+        return;
+    }
+    dropOverlayLabel->setGeometry(inputEdit->viewport()->rect().adjusted(24, 24, -24, -24));
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+    if (event->mimeData()->hasUrls()) {
+        const QList<QUrl> urls = event->mimeData()->urls();
+        for (const QUrl& url : urls) {
+            if (url.isLocalFile() && url.toLocalFile().endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive)) {
+                event->acceptProposedAction();
+                if (leftCard) {
+                    leftCard->setProperty("dragging", true);
+                    leftCard->style()->unpolish(leftCard);
+                    leftCard->style()->polish(leftCard);
+                    leftCard->update();
+                }
+                if (dropOverlayLabel) {
+                    updateDropOverlayGeometry();
+                    dropOverlayLabel->show();
+                }
+                return;
+            }
+        }
+    }
+    QMainWindow::dragEnterEvent(event);
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent* event) {
+    QMainWindow::dragLeaveEvent(event);
+    if (leftCard) {
+        leftCard->setProperty("dragging", false);
+        leftCard->style()->unpolish(leftCard);
+        leftCard->style()->polish(leftCard);
+        leftCard->update();
+    }
+    if (dropOverlayLabel) {
+        dropOverlayLabel->hide();
+    }
+}
+
+void MainWindow::dropEvent(QDropEvent* event) {
+    if (leftCard) {
+        leftCard->setProperty("dragging", false);
+        leftCard->style()->unpolish(leftCard);
+        leftCard->style()->polish(leftCard);
+        leftCard->update();
+    }
+    if (dropOverlayLabel) {
+        dropOverlayLabel->hide();
+    }
+
+    if (event->mimeData()->hasUrls()) {
+        const QList<QUrl> urls = event->mimeData()->urls();
+        for (const QUrl& url : urls) {
+            if (url.isLocalFile() && url.toLocalFile().endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive)) {
+                event->acceptProposedAction();
+                loadInstructionsFromFile(url.toLocalFile());
+                return;
+            }
+        }
+    }
+    QMainWindow::dropEvent(event);
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    updateDropOverlayGeometry();
+}
+
 
 void MainWindow::onLoadClicked() {
     QString path = QFileDialog::getOpenFileName(this, "Seleccionar archivo de instrucciones", "", "Texto (*.txt)");
     if (path.isEmpty()) {
         return;
     }
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        codeEdit->setPlainText("No se pudo abrir el archivo.");
-        setStatusState(QStringLiteral("warning"));
-        updateStatusLabel(QStringLiteral("Error al abrir archivo"));
-        scheduleStatusReset();
-        return;
-    }
-    QTextStream in(&f);
-    QString content = in.readAll();
-    f.close();
-
-    inputEdit->setPlainText(content);
-    updateInputMetrics();
-
-    QFileInfo info(path);
-    const QString fileName = info.fileName();
-    setStatusState(QStringLiteral("success"));
-    updateStatusLabel(QStringLiteral("Archivo cargado: %1").arg(fileName));
-    scheduleStatusReset();
+    loadInstructionsFromFile(path);
 }
 
 void MainWindow::onTranslateClicked() {

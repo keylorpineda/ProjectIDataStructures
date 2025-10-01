@@ -36,7 +36,6 @@ public:
 
 private:
     QLabel* titleLabel;
-    QLabel* subtitleLabel;
     QPlainTextEdit* inputEdit;
     QPlainTextEdit* codeEdit;
     QLabel* dropOverlayLabel;

@@ -9,7 +9,7 @@ static int countLeadingIndentSpaces(string text) {
         unsigned char uc = static_cast<unsigned char>(c);
         if (uc == 0xC2 && i + 1 < n) {
             unsigned char next = static_cast<unsigned char>(text[i + 1]);
-            if (next == 0xA0) { // non-breaking space
+            if (next == 0xA0) {
                 spaces = spaces + 1;
                 i = i + 2;
                 continue;
@@ -174,7 +174,7 @@ Instruction InstructionProcessor::parseInstruction(string lineText) {
         string left = cutBetweenInsensitive("para", " hasta");
         if (left == "") { left = cutBetweenInsensitive("para", "hasta"); }
         string right = helper.trimSimple(cutAfterInsensitive("hasta"));
-        string joined = helper.trimSimple(left) + string(" ") + right; // "i = 1 5"
+        string joined = helper.trimSimple(left) + string(" ") + right;
         Instruction ins("Control", "for_to", helper.trimSimple(joined));
         ins.setIndent(indentSpaces);
         return ins;

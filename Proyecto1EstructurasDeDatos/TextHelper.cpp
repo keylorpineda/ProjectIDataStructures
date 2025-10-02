@@ -42,25 +42,25 @@ char TextHelper::toLowerAscii(char c) {
 
 char TextHelper::removeAccentChar(char c) {
     switch (c) {
-    case '\xc1': // Á
-    case '\xe1': // á
+    case '\xc1':
+    case '\xe1':
         return 'a';
-    case '\xc9': // É
-    case '\xe9': // é
+    case '\xc9':
+    case '\xe9':
         return 'e';
-    case '\xcd': // Í
-    case '\xed': // í
+    case '\xcd':
+    case '\xed':
         return 'i';
-    case '\xd3': // Ó
-    case '\xf3': // ó
+    case '\xd3':
+    case '\xf3':
         return 'o';
-    case '\xda': // Ú
-    case '\xfa': // ú
-    case '\xdc': // Ü
-    case '\xfc': // ü
+    case '\xda':
+    case '\xfa':
+    case '\xdc':
+    case '\xfc':
         return 'u';
-    case '\xd1': // Ñ
-    case '\xf1': // ñ
+    case '\xd1':
+    case '\xf1':
         return 'n';
     default:
         return c;

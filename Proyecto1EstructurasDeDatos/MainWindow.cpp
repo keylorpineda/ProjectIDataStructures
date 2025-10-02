@@ -679,7 +679,7 @@ void MainWindow::translateAllLines() {
     while (i < n) {
         QString raw = lines.at(i);
         if (!raw.trimmed().isEmpty()) {
-            Instruction ins = processor.parseInstruction(raw.toStdString()); // usa la linea completa
+            Instruction ins = processor.parseInstruction(raw.toStdString());
             generator.generate(ins);
         }
         i = i + 1;

@@ -10,32 +10,32 @@ static string replaceUtf8Accents(string text) {
             unsigned char next = static_cast<unsigned char>(text[i + 1]);
             char replacement = 0;
             switch (next) {
-            case 0x81: // Á
-            case 0xA1: // á
+            case 0x81:
+            case 0xA1:
                 replacement = 'a';
                 break;
-            case 0x89: // É
-            case 0xA9: // é
+            case 0x89:
+            case 0xA9:
                 replacement = 'e';
                 break;
-            case 0x8D: // Í
-            case 0xAD: // í
+            case 0x8D:
+            case 0xAD:
                 replacement = 'i';
                 break;
-            case 0x93: // Ó
-            case 0xB3: // ó
+            case 0x93:
+            case 0xB3:
                 replacement = 'o';
                 break;
-            case 0x9A: // Ú
-            case 0xBA: // ú
+            case 0x9A:
+            case 0xBA:
                 replacement = 'u';
                 break;
-            case 0x9C: // Ü
-            case 0xBC: // ü
+            case 0x9C:
+            case 0xBC:
                 replacement = 'u';
                 break;
-            case 0x91: // Ñ
-            case 0xB1: // ñ
+            case 0x91:
+            case 0xB1:
                 replacement = 'n';
                 break;
             default:
@@ -505,7 +505,6 @@ void CodeGenerator::genSum(string params) {
     vector<string> operands = extractMathOperands(params);
     string expression = buildMathExpression(operands, "+");
     if (expression == "") {
-        appendLine("// sumar: sin operandos");
         return;
     }
     ensureDeclared("total", "int", "");
@@ -517,7 +516,6 @@ void CodeGenerator::genSub(string params) {
     vector<string> operands = extractMathOperands(params);
     string expression = buildMathExpression(operands, "-");
     if (expression == "") {
-        appendLine("// restar: sin operandos");
         return;
     }
     ensureDeclared("resultadoResta", "int", "");
@@ -529,7 +527,6 @@ void CodeGenerator::genMul(string params) {
     vector<string> operands = extractMathOperands(params);
     string expression = buildMathExpression(operands, "*");
     if (expression == "") {
-        appendLine("// multiplicar: sin operandos");
         return;
     }
     ensureDeclared("resultadoMultiplicacion", "int", "");
@@ -540,7 +537,6 @@ void CodeGenerator::genMul(string params) {
 void CodeGenerator::genDiv(string params) {
     vector<string> operands = extractMathOperands(params);
     if (operands.empty()) {
-        appendLine("// dividir: sin operandos");
         return;
     }
     string expression;
@@ -582,7 +578,6 @@ void CodeGenerator::genCalc(string params) {
     }
     string normalized = normalizeBooleanWord(normalizeMathTokens(expressionPart));
     if (normalized == "") {
-        appendLine("// calcular: sin expresion");
         return;
     }
     string inferredType = inferTypeFromToken(normalized);
@@ -703,7 +698,6 @@ void CodeGenerator::genRead(string params) {
     }
     string varName = trimmed;
     if (varName == "") {
-        appendLine("// leer: falta variable");
         return;
     }
     string normalizedVar = normalizeBooleanWord(varName);
@@ -756,7 +750,6 @@ void CodeGenerator::genForTo(string params) {
     string endVal = "";
     bool ok = parseForParts(text, varName, startVal, endVal);
     if (!ok) {
-        appendLine("// para/hasta: formato no reconocido");
         return;
     }
     appendLine("for (int " + varName + " = " + startVal + "; " + varName + " <= " + endVal + "; " + varName + "++)");
@@ -1022,7 +1015,6 @@ void CodeGenerator::genAssign(string params) {
     if (varName == "" || value == "") {
         bool ok = splitAssignRight(text, varName, value);
         if (!ok) {
-            appendLine("// asignar valor: formato no reconocido");
             return;
         }
     }
@@ -1171,7 +1163,7 @@ void CodeGenerator::genTraverseList(string params) {
 }
 
 void CodeGenerator::genAddToList(string params) {
-    appendLine("// agregar a la lista requiere estructura dinamica (vector) no permitida");
+    (void)params;
 }
 
 void CodeGenerator::genCreateStruct(string params) {
@@ -1234,11 +1226,9 @@ void CodeGenerator::genReturn(string params) {
 }
 
 void CodeGenerator::genBeginProgram() {
-    appendLine("// comenzar programa");
 }
 
 void CodeGenerator::genEndProgram() {
-    appendLine("// terminar programa");
 }
 
 void CodeGenerator::genComment(string params) {
@@ -1444,7 +1434,7 @@ void CodeGenerator::generate(Instruction ins) {
     if (op == "call_func") { genCallFunction(params); afterEmit(indentLevelRaw); return; }
     if (op == "create_struct") { genCreateStruct(params); afterEmit(indentLevelRaw); return; }
     if (op == "return") { genReturn(params); afterEmit(indentLevelRaw); return; }
-    appendLine("// unknown: " + params);
+    appendLine("cout << \"Instruccion no reconocida\" << endl;");
     afterEmit(indentLevelRaw);
 }
 

@@ -1,4 +1,5 @@
 #include "LanguageDictionary.h"
+#include <cctype>
 
 LanguageDictionary::LanguageDictionary() {
     mapOp["sumar"] = "sum";
@@ -50,12 +51,29 @@ LanguageDictionary::LanguageDictionary() {
     mapCtrl["retorne"] = "return";
 }
 
+static bool isWordBoundaryMatch(const string& text, size_t pos, size_t length) {
+    if (pos > 0) {
+        unsigned char prev = static_cast<unsigned char>(text[pos - 1]);
+        if (std::isalnum(prev) || prev == '_') {
+            return false;
+        }
+    }
+    size_t end = pos + length;
+    if (end < text.length()) {
+        unsigned char next = static_cast<unsigned char>(text[end]);
+        if (std::isalnum(next) || next == '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
 string LanguageDictionary::findOpKey(string text) {
     string bestKey = "";
     size_t bestLength = 0;
     for (auto& entry : mapOp) {
         size_t pos = text.find(entry.first);
-        if (pos != string::npos) {
+        if (pos != string::npos && isWordBoundaryMatch(text, pos, entry.first.length())) {
             size_t currentLength = entry.first.length();
             if (currentLength > bestLength) {
                 bestKey = entry.first;
@@ -71,7 +89,7 @@ string LanguageDictionary::findIOKey(string text) {
     size_t bestLength = 0;
     for (auto& entry : mapIO) {
         size_t pos = text.find(entry.first);
-        if (pos != string::npos) {
+        if (pos != string::npos && isWordBoundaryMatch(text, pos, entry.first.length())) {
             size_t currentLength = entry.first.length();
             if (currentLength > bestLength) {
                 bestKey = entry.first;

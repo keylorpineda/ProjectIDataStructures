@@ -21,6 +21,7 @@
 #include <QParallelAnimationGroup>
 #include <QDragEnterEvent>
 #include <QDragLeaveEvent>
+#include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QResizeEvent>
 
@@ -39,6 +40,10 @@ private:
     QPlainTextEdit* inputEdit;
     QPlainTextEdit* codeEdit;
     QLabel* dropOverlayLabel;
+    QFrame* globalDropOverlay;
+    QLabel* globalDropIcon;
+    QLabel* globalDropTitle;
+    QLabel* globalDropSubtitle;
     QPushButton* loadButton;
     QPushButton* translateButton;
     QPushButton* exportButton;
@@ -66,10 +71,14 @@ private:
     void setStatusState(const QString& stateName);
     void scheduleStatusReset(int durationMs = 2200);
     void updateDropOverlayGeometry();
+    void updateGlobalDropOverlayGeometry();
+    bool mimeHasTxtFile(const QMimeData* mime) const;
+    void setDraggingVisualState(bool active);
 
 protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dragLeaveEvent(QDragLeaveEvent* event) override;
+    void dragMoveEvent(QDragMoveEvent* event) override;
     void dropEvent(QDropEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 

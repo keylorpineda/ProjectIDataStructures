@@ -24,6 +24,10 @@
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent),
     dropOverlayLabel(nullptr),
+    globalDropOverlay(nullptr),
+    globalDropIcon(nullptr),
+    globalDropTitle(nullptr),
+    globalDropSubtitle(nullptr),
     loadButton(nullptr),
     translateButton(nullptr),
     exportButton(nullptr),
@@ -177,6 +181,24 @@ void MainWindow::applyDarkTheme() {
         "  color: #f48fb1;"
         "  border: 1px solid rgba(244, 143, 177, 0.45);"
         "}"
+        "QFrame#globalDropOverlay {"
+        "  background: rgba(15, 19, 29, 0.92);"
+        "  border: 1.4px dashed rgba(123, 169, 255, 0.55);"
+        "  border-radius: 26px;"
+        "}"
+        "QLabel#globalDropIcon {"
+        "  font-size: 42pt;"
+        "}"
+        "QLabel#globalDropTitle {"
+        "  color: #d6e4ff;"
+        "  font-size: 15pt;"
+        "  font-weight: 600;"
+        "  letter-spacing: 0.8px;"
+        "}"
+        "QLabel#globalDropSubtitle {"
+        "  color: #95a1c5;"
+        "  font-size: 11.5pt;"
+        "}"
         "QScrollBar:vertical {"
         "  background: transparent;"
         "  width: 12px;"
@@ -260,16 +282,18 @@ void MainWindow::buildUi() {
     inputEdit->setMinimumHeight(420);
     leftCardLayout->addWidget(inputEdit, 1);
 
-    dropOverlayLabel = new QLabel("Suelta aquí tu archivo .txt", inputEdit->viewport());
+    dropOverlayLabel = new QLabel("Suelta aquí tu archivo .txt\n(o en cualquier parte de la ventana)", inputEdit->viewport());
     dropOverlayLabel->setAlignment(Qt::AlignCenter);
     dropOverlayLabel->setStyleSheet(
-        "background: rgba(16, 22, 34, 0.88);"
-        "border: 1.2px dashed rgba(123, 169, 255, 0.6);"
-        "border-radius: 12px;"
-        "color: #9cbcff;"
-        "font-size: 12pt;"
-        "letter-spacing: 0.6px;"
+        "background: rgba(18, 24, 37, 0.88);"
+        "border: 1.3px dashed rgba(123, 169, 255, 0.55);"
+        "border-radius: 18px;"
+        "color: #aec6ff;"
+        "font-size: 12.8pt;"
+        "font-weight: 600;"
+        "letter-spacing: 0.8px;"
         "text-transform: uppercase;"
+        "padding: 28px 24px;"
     );
     dropOverlayLabel->setWordWrap(true);
     dropOverlayLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -366,6 +390,36 @@ void MainWindow::buildUi() {
     root->setStretch(2, 1);
     root->setStretch(3, 0);
 
+    globalDropOverlay = new QFrame(central);
+    globalDropOverlay->setObjectName("globalDropOverlay");
+    globalDropOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
+    globalDropOverlay->hide();
+
+    QVBoxLayout* overlayLayout = new QVBoxLayout(globalDropOverlay);
+    overlayLayout->setContentsMargins(72, 100, 72, 100);
+    overlayLayout->setSpacing(10);
+    overlayLayout->setAlignment(Qt::AlignCenter);
+    overlayLayout->addStretch();
+
+    globalDropIcon = new QLabel(QStringLiteral("📄"), globalDropOverlay);
+    globalDropIcon->setObjectName("globalDropIcon");
+    globalDropIcon->setAlignment(Qt::AlignCenter);
+    overlayLayout->addWidget(globalDropIcon, 0, Qt::AlignHCenter);
+
+    globalDropTitle = new QLabel(QStringLiteral("Suelta tu archivo .txt"), globalDropOverlay);
+    globalDropTitle->setObjectName("globalDropTitle");
+    globalDropTitle->setAlignment(Qt::AlignCenter);
+    globalDropTitle->setWordWrap(true);
+    overlayLayout->addWidget(globalDropTitle, 0, Qt::AlignHCenter);
+
+    globalDropSubtitle = new QLabel(QStringLiteral("Puedes arrastrarlo a cualquier parte de la ventana y lo detectaremos automáticamente."), globalDropOverlay);
+    globalDropSubtitle->setObjectName("globalDropSubtitle");
+    globalDropSubtitle->setAlignment(Qt::AlignCenter);
+    globalDropSubtitle->setWordWrap(true);
+    overlayLayout->addWidget(globalDropSubtitle, 0, Qt::AlignHCenter);
+
+    overlayLayout->addStretch();
+
     setCentralWidget(central);
     setWindowTitle("Traductor a C++");
 
@@ -379,6 +433,9 @@ void MainWindow::buildUi() {
     applyShadow(leftCard);
     applyShadow(rightCard);
 
+    if (globalDropOverlay) {
+        globalDropOverlay->raise();
+    }
     if (dropOverlayLabel) {
         dropOverlayLabel->raise();
     }
@@ -440,6 +497,7 @@ void MainWindow::buildUi() {
     codeEdit->setCenterOnScroll(true);
 
     updateDropOverlayGeometry();
+    updateGlobalDropOverlayGeometry();
     updateInputMetrics();
 
     resize(1280, 780);
@@ -638,55 +696,81 @@ void MainWindow::updateDropOverlayGeometry() {
     if (!dropOverlayLabel || !inputEdit) {
         return;
     }
-    dropOverlayLabel->setGeometry(inputEdit->viewport()->rect().adjusted(24, 24, -24, -24));
+    dropOverlayLabel->setGeometry(inputEdit->viewport()->rect().adjusted(36, 36, -36, -36));
+}
+
+void MainWindow::updateGlobalDropOverlayGeometry() {
+    if (!globalDropOverlay || !centralWidget()) {
+        return;
+    }
+    const QRect area = centralWidget()->rect().adjusted(26, 26, -26, -26);
+    globalDropOverlay->setGeometry(area);
+}
+
+bool MainWindow::mimeHasTxtFile(const QMimeData* mime) const {
+    if (!mime || !mime->hasUrls()) {
+        return false;
+    }
+    const QList<QUrl> urls = mime->urls();
+    for (const QUrl& url : urls) {
+        if (url.isLocalFile() && url.toLocalFile().endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MainWindow::setDraggingVisualState(bool active) {
+    if (leftCard) {
+        leftCard->setProperty("dragging", active);
+        leftCard->style()->unpolish(leftCard);
+        leftCard->style()->polish(leftCard);
+        leftCard->update();
+    }
+    if (dropOverlayLabel) {
+        if (active) {
+            updateDropOverlayGeometry();
+            dropOverlayLabel->show();
+        } else {
+            dropOverlayLabel->hide();
+        }
+    }
+    if (globalDropOverlay) {
+        if (active) {
+            updateGlobalDropOverlayGeometry();
+            globalDropOverlay->show();
+            globalDropOverlay->raise();
+        } else {
+            globalDropOverlay->hide();
+        }
+    }
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
-    if (event->mimeData()->hasUrls()) {
-        const QList<QUrl> urls = event->mimeData()->urls();
-        for (const QUrl& url : urls) {
-            if (url.isLocalFile() && url.toLocalFile().endsWith(QStringLiteral(".txt"), Qt::CaseInsensitive)) {
-                event->acceptProposedAction();
-                if (leftCard) {
-                    leftCard->setProperty("dragging", true);
-                    leftCard->style()->unpolish(leftCard);
-                    leftCard->style()->polish(leftCard);
-                    leftCard->update();
-                }
-                if (dropOverlayLabel) {
-                    updateDropOverlayGeometry();
-                    dropOverlayLabel->show();
-                }
-                return;
-            }
-        }
+    if (mimeHasTxtFile(event->mimeData())) {
+        event->acceptProposedAction();
+        setDraggingVisualState(true);
+        return;
     }
     QMainWindow::dragEnterEvent(event);
 }
 
+void MainWindow::dragMoveEvent(QDragMoveEvent* event) {
+    if (mimeHasTxtFile(event->mimeData())) {
+        event->acceptProposedAction();
+        setDraggingVisualState(true);
+        return;
+    }
+    QMainWindow::dragMoveEvent(event);
+}
+
 void MainWindow::dragLeaveEvent(QDragLeaveEvent* event) {
+    setDraggingVisualState(false);
     QMainWindow::dragLeaveEvent(event);
-    if (leftCard) {
-        leftCard->setProperty("dragging", false);
-        leftCard->style()->unpolish(leftCard);
-        leftCard->style()->polish(leftCard);
-        leftCard->update();
-    }
-    if (dropOverlayLabel) {
-        dropOverlayLabel->hide();
-    }
 }
 
 void MainWindow::dropEvent(QDropEvent* event) {
-    if (leftCard) {
-        leftCard->setProperty("dragging", false);
-        leftCard->style()->unpolish(leftCard);
-        leftCard->style()->polish(leftCard);
-        leftCard->update();
-    }
-    if (dropOverlayLabel) {
-        dropOverlayLabel->hide();
-    }
+    setDraggingVisualState(false);
 
     if (event->mimeData()->hasUrls()) {
         const QList<QUrl> urls = event->mimeData()->urls();
@@ -704,6 +788,7 @@ void MainWindow::dropEvent(QDropEvent* event) {
 void MainWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
     updateDropOverlayGeometry();
+    updateGlobalDropOverlayGeometry();
 }
 
 

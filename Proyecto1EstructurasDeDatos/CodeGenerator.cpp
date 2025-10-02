@@ -1314,6 +1314,16 @@ void CodeGenerator::genDefineFunction(string params) {
         }
         int i = 0;
         int paramIndex = 1;
+        auto findStructTypeForToken = [&](const string& token) -> string {
+            string normalizedToken = helper.removeAccents(helper.toLowerSimple(token));
+            for (auto& entry : structTable) {
+                string normalizedName = helper.removeAccents(helper.toLowerSimple(entry.first));
+                if (normalizedToken == normalizedName) {
+                    return entry.first;
+                }
+            }
+            return string("");
+        };
         while (i < (int)paramTokens.size()) {
             string norm = paramNormalized[i];
             if (norm == "" || norm == "y" || norm == "e" || norm == "con" || norm == "parametro" || norm == "parametros" ||
@@ -1324,6 +1334,13 @@ void CodeGenerator::genDefineFunction(string params) {
             }
             int nextIndex = i;
             string typeCandidate = detectTypeFromTokens(helper, paramTokens, paramNormalized, i, nextIndex);
+            if (typeCandidate == "") {
+                string structType = findStructTypeForToken(paramTokens[i]);
+                if (structType != "") {
+                    typeCandidate = structType;
+                    nextIndex = i + 1;
+                }
+            }
             if (typeCandidate != "") {
                 string paramName = "";
                 if (nextIndex < (int)paramTokens.size()) {
@@ -1337,6 +1354,28 @@ void CodeGenerator::genDefineFunction(string params) {
                 }
                 parameters.push_back(make_pair(typeCandidate, paramName));
                 i = nextIndex;
+                paramIndex = paramIndex + 1;
+                continue;
+            }
+            string structType = findStructTypeForToken(paramTokens[i]);
+            if (structType != "") {
+                string paramName = "";
+                if (i + 1 < (int)paramTokens.size()) {
+                    paramName = cleanIdentifierToken(helper, paramTokens[i + 1]);
+                    i = i + 2;
+                }
+                else {
+                    ostringstream generated;
+                    generated << "param" << paramIndex;
+                    paramName = generated.str();
+                    i = i + 1;
+                }
+                if (paramName == "") {
+                    ostringstream generated;
+                    generated << "param" << paramIndex;
+                    paramName = generated.str();
+                }
+                parameters.push_back(make_pair(structType, paramName));
                 paramIndex = paramIndex + 1;
                 continue;
             }

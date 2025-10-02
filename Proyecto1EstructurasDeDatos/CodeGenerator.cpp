@@ -324,7 +324,9 @@ string CodeGenerator::normalizeMathTokens(string text) {
     t = helper.replaceAllSimple(t, "dividir", "/");
     t = helper.replaceAllSimple(t, "entre", "/");
     t = helper.replaceAllSimple(t, " y ", " ");
-    t = helper.replaceAllSimple(t, ",", " ");
+    if ((int)t.find('(') < 0) {
+        t = helper.replaceAllSimple(t, ",", " ");
+    }
     t = helper.replaceAllSimple(t, "  ", " ");
     return helper.trimSimple(t);
 }
@@ -1018,11 +1020,46 @@ void CodeGenerator::genAssign(string params) {
             return;
         }
     }
-    string normalizedValue = toLowerNoAccents(value);
+    value = helper.trimSimple(value);
+    auto toLowerTrimmed = [&](const string& textValue) {
+        return toLowerNoAccents(helper.trimSimple(textValue));
+    };
+    auto stripPrefix = [&](const string& marker) {
+        string trimmedValue = helper.trimSimple(value);
+        string normalizedValue = toLowerNoAccents(trimmedValue);
+        if ((int)normalizedValue.rfind(marker, 0) == 0) {
+            value = helper.trimSimple(trimmedValue.substr((int)marker.length()));
+            return true;
+        }
+        return false;
+    };
+    stripPrefix("asignar valor");
+    stripPrefix("asignar");
+    stripPrefix("poner valor");
+    stripPrefix("poner");
+    vector<string> callPrefixes = {
+        "llamar funcion",
+        "llamar la funcion",
+        "llamar a la funcion"
+    };
+    for (const auto& prefix : callPrefixes) {
+        if (stripPrefix(prefix)) {
+            break;
+        }
+    }
+    string normalizedValue = toLowerTrimmed(value);
     if ((int)normalizedValue.rfind("llamar funcion", 0) == 0) {
         int offset = (int)string("llamar funcion").length();
         if ((int)value.length() >= offset) {
             value = helper.trimSimple(value.substr(offset));
+            normalizedValue = toLowerTrimmed(value);
+        }
+    }
+    if ((int)normalizedValue.rfind("llamar a la funcion", 0) == 0) {
+        int offset = (int)string("llamar a la funcion").length();
+        if ((int)value.length() >= offset) {
+            value = helper.trimSimple(value.substr(offset));
+            normalizedValue = toLowerTrimmed(value);
         }
     }
     value = normalizeBooleanWord(normalizeMathTokens(value));
@@ -1120,12 +1157,70 @@ void CodeGenerator::genTraverseList(string params) {
     string indexName = selectIndexName("i");
     string lowered = toLowerNoAccents(trimmed);
     if ((int)lowered.find("sumar") >= 0 && (int)lowered.find("total") >= 0) {
+        string sumExpr = info.name + "[" + indexName + "]";
+        string totalType = info.elementType == "double" ? "double" : "int";
+        string totalInit = totalType == "double" ? "0.0" : "0";
+        auto structIt = structTable.find(info.elementType);
+        if (structIt != structTable.end()) {
+            const StructInfo& sinfo = structIt->second;
+            string selectedField;
+            string selectedType;
+            for (auto& field : sinfo.fields) {
+                string normalizedField = toLowerNoAccents(field.first);
+                if ((int)lowered.find(normalizedField) >= 0) {
+                    if (field.second == "double" || field.second == "int") {
+                        selectedField = field.first;
+                        selectedType = field.second;
+                        break;
+                    }
+                }
+                if (!normalizedField.empty() && (int)lowered.find(normalizedField + "s") >= 0) {
+                    if (field.second == "double" || field.second == "int") {
+                        selectedField = field.first;
+                        selectedType = field.second;
+                        break;
+                    }
+                }
+            }
+            if (selectedField == "") {
+                for (auto& field : sinfo.fields) {
+                    if (field.second == "double") {
+                        selectedField = field.first;
+                        selectedType = field.second;
+                        break;
+                    }
+                }
+            }
+            if (selectedField == "") {
+                for (auto& field : sinfo.fields) {
+                    if (field.second == "int") {
+                        selectedField = field.first;
+                        selectedType = field.second;
+                        break;
+                    }
+                }
+            }
+            if (selectedField != "") {
+                sumExpr = info.name + "[" + indexName + "]." + selectedField;
+                if (selectedType == "double") {
+                    totalType = "double";
+                    totalInit = "0.0";
+                }
+                else {
+                    totalType = "int";
+                    totalInit = "0";
+                }
+            }
+            else {
+                sumExpr = "0";
+            }
+        }
         if (!symbolTable.variableExists("total")) {
-            ensureDeclared("total", info.elementType == "double" ? "double" : "int", "0");
+            ensureDeclared("total", totalType, totalInit);
         }
         appendLine("for (int " + indexName + " = 0; " + indexName + " < " + sizeExpr + "; " + indexName + "++)");
         appendLine("{");
-        appendLine("    total += " + info.name + "[" + indexName + "];");
+        appendLine("    total += " + sumExpr + ";");
         appendLine("}");
         lastLoopArray = info.name;
         return;
